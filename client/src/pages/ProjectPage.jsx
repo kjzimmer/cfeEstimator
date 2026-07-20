@@ -92,6 +92,7 @@ export default function ProjectPage() {
         <ConversationPanel
           messages={messages}
           currentUserId={user?.id}
+          projectId={id}
           onSend={handleSend}
           onUploadFile={handleUploadFile}
           sending={sending}

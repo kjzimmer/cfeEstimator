@@ -70,14 +70,16 @@ export const api = {
   },
   // Files are served behind requireAuth, so <img src> can't hit them
   // directly -- fetch as a blob (with the auth header) and hand back an
-  // object URL the caller is responsible for revoking.
+  // object URL the caller is responsible for revoking. Content-Type comes
+  // from the response header, same value the server stored as mime_type.
   fetchFileBlobUrl: async (projectId, fileId) => {
     const token = getToken();
     const res = await fetch(`/api/projects/${projectId}/files/${fileId}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new Error('Failed to load file');
+    const mimeType = res.headers.get('content-type') || 'application/octet-stream';
     const blob = await res.blob();
-    return URL.createObjectURL(blob);
+    return { url: URL.createObjectURL(blob), mimeType };
   },
 };

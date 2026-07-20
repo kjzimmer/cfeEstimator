@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import FileViewerModal from './FileViewerModal.jsx';
 
 function initials(name) {
   if (!name) return '?';
@@ -10,10 +11,18 @@ function initials(name) {
     .toUpperCase();
 }
 
-function MessageBubble({ message, currentUserId }) {
+function MessageBubble({ message, currentUserId, onOpenFile }) {
   const isAgent = message.sender_type === 'agent';
   const isMine = !isAgent && message.user_id === currentUserId;
   const displayName = isAgent ? 'Agent' : message.user_name || 'Unknown';
+  const bubbleClass = [
+    'rounded-lg px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap',
+    isAgent
+      ? 'bg-accent/[0.08] text-text border border-accent/20'
+      : isMine
+      ? 'bg-accent text-white'
+      : 'bg-bg border border-border text-text',
+  ].join(' ');
 
   return (
     <div className={`flex gap-2.5 ${isMine ? 'flex-row-reverse' : ''}`}>
@@ -27,18 +36,17 @@ function MessageBubble({ message, currentUserId }) {
       </div>
       <div className={`flex flex-col gap-0.5 max-w-[80%] ${isMine ? 'items-end' : 'items-start'}`}>
         <span className="text-xs text-text-secondary px-1">{displayName}</span>
-        <div
-          className={[
-            'rounded-lg px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap',
-            isAgent
-              ? 'bg-accent/[0.08] text-text border border-accent/20'
-              : isMine
-              ? 'bg-accent text-white'
-              : 'bg-bg border border-border text-text',
-          ].join(' ')}
-        >
-          {message.type === 'file' ? `📎 ${message.content}` : message.content}
-        </div>
+        {message.type === 'file' ? (
+          <button
+            type="button"
+            onClick={() => onOpenFile(message.file_id, message.content)}
+            className={`${bubbleClass} underline decoration-dotted underline-offset-2 hover:opacity-80 cursor-pointer text-left`}
+          >
+            📎 {message.content}
+          </button>
+        ) : (
+          <div className={bubbleClass}>{message.content}</div>
+        )}
       </div>
     </div>
   );
@@ -50,8 +58,10 @@ export default function ConversationPanel({
   onSend,
   onUploadFile,
   sending,
+  projectId,
 }) {
   const [draft, setDraft] = useState('');
+  const [viewingFile, setViewingFile] = useState(null);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -87,7 +97,12 @@ export default function ConversationPanel({
           </p>
         )}
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} currentUserId={currentUserId} />
+          <MessageBubble
+            key={m.id}
+            message={m}
+            currentUserId={currentUserId}
+            onOpenFile={(fileId, filename) => setViewingFile({ fileId, filename })}
+          />
         ))}
         {sending && (
           <div className="flex gap-2.5">
@@ -132,6 +147,15 @@ export default function ConversationPanel({
           Send
         </button>
       </form>
+
+      {viewingFile && (
+        <FileViewerModal
+          projectId={projectId}
+          fileId={viewingFile.fileId}
+          filename={viewingFile.filename}
+          onClose={() => setViewingFile(null)}
+        />
+      )}
     </div>
   );
 }
