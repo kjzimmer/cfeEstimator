@@ -8,6 +8,13 @@ Deploy/infra/ops knowledge for CFE Estimator — distinct from `coding-standards
 - **Production**: Railway, single service (`cfeEstimator`) serving both the API and the built React client, plus a Postgres addon. Public URL: the service's Railway-assigned domain.
 - **Planned, not yet built**: a dev → staging → production sequence. Not needed at current scale, but when it's introduced, define here: how each stage maps to Railway environments/services, how a change is promoted between them (branch-based? manual promotion? environment cloning?), and what differs per environment (separate Anthropic key, separate DB, etc.). This section is a placeholder for that decision.
 
+## Backups (placeholder — not yet implemented)
+
+No backup/restore process exists for the production Postgres data yet. Fine at current scale (seed/demo data, easily regenerated) — not fine once real client conversation history or project data starts accumulating. When this gets addressed, decide and document here:
+- Backup mechanism (Railway's built-in Postgres backups vs. a separate scheduled export) and retention period
+- Restore process, tested at least once before it's trusted
+- How this interacts with the dev → staging → production sequence above — e.g. whether staging gets seeded from a sanitized production backup, and how credentials/secrets are kept out of that path
+
 ## Build system: Nixpacks, not Railpack
 
 Railway offers two builders. This project uses **Nixpacks** via a `railway.json` config, not Railway's newer **Railpack** builder. This was an empirical finding, not a permanent constraint — worth revisiting if Railpack matures.
