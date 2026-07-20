@@ -8,7 +8,7 @@ Tailwind CSS, with a small custom token set layered in rather than default Tailw
 ## Tokens
 
 **Color**
-- Background: `#F7F8F7` (cool near-white, not cream)
+- Background: `#E9ECEB` (cool light gray, not cream -- darkened slightly from the original `#F7F8F7` for contrast against white cards)
 - Surface (cards/panels): `#FFFFFF`
 - Text primary: `#1E2A32` (deep slate)
 - Text secondary: `#5B6B73` (muted slate)
@@ -21,6 +21,8 @@ Tailwind CSS, with a small custom token set layered in rather than default Tailw
 
 ## Layout concept
 Two visually distinct registers, and the distinction is deliberate, not accidental: the conversation panel should feel conversational (looser rhythm, avatars/names, normal reading flow), while the project-definition panel should feel structured (tighter grid, labeled fields, monospace for numbers). The contrast between the two panels visually reinforces what the product actually does — turning conversation into structured data.
+
+The top nav bar is sticky (stays visible on scroll) — nav and sign-out stay reachable without scrolling back up on longer pages.
 
 ## Signature moment
 When the agent updates a definition field from conversation, give that field a brief, deliberate visual acknowledgment (e.g. a short highlight/pulse on the field that just changed) — not decoration, information: it makes the core mechanic ("talking builds the project") visible and legible every time it happens, and it's the one thing worth spending real polish on this phase.

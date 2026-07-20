@@ -20,7 +20,7 @@ export default function NavShell() {
 
   return (
     <div className="min-h-screen flex flex-col bg-bg">
-      <header className="border-b border-border bg-surface">
+      <header className="sticky top-0 z-10 border-b border-border bg-surface">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
