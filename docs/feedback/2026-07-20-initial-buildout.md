@@ -17,3 +17,14 @@ Built through build priority items 1-6 from `requirements/README.md` in one sess
 
 ## Not built yet (deliberately, per build priority order)
 Company Info Identity real content, and everything under "near-term, not-yet-scheduled" in `functional_requirements.md` (R2 storage, OCR, satellite imagery). Agent autonomous-write-vs-confirm question from `api-architecture.md` also still open — currently autonomous, as the doc's this-phase default says.
+
+## Later in this session: doc ownership process, and two new docs proposed
+
+After the initial build-out (above), this session went on to deploy to Railway (several rounds of build/runtime debugging — see `operations.md` in this folder), seed example data, add a file-viewer modal, and make a couple of UX tweaks. During that work I twice edited `UX_design.md` directly (a background-color token change and a sticky-nav note) in response to direct requests. You asked for those edits to be reverted and moved here instead — established going forward: I don't edit `vision.md`, `functional_requirements.md`, `requirements/*.md`, `coding-standards.md`, or `UX_design.md` directly; deviations get written to `docs/feedback/` as proposals for you/the DevOps agent to fold in on your own review cadence. You're taking the exact shape of this process back to the DevOps agent before it's codified in `CLAUDE.md`.
+
+Two new docs proposed as part of that same conversation, both drafted here rather than at `docs/` root, per the same process:
+
+- **`operations.md`** — deploy/infra/ops knowledge: environments, why Nixpacks over Railpack, the monorepo build pattern, Node version pinning, required env vars, reaching the production DB from a local machine, and how to debug a bad deploy. Includes a placeholder section for the dev → staging → production sequence you're expecting to add later — intentionally left undefined until that's actually being built, but the doc now has an obvious home for it.
+- **`docManagement.md`** — repo structure (moved out of `coding-standards.md`, which should have that section removed once this is adopted, to avoid saying it twice), the doc ownership table, the hierarchy principle (parents stay at why/what, siblings don't overlap, no mega-docs), and the change process itself. This doc governs the others, including itself.
+
+Both were drafted pulling from existing docs where content already existed (repo layout out of `coding-standards.md`) rather than duplicating it. Neither has been placed at `docs/` root — that's your and the DevOps agent's call once reviewed.
