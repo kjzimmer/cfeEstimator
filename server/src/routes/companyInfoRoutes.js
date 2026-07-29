@@ -1,8 +1,49 @@
 import { Router } from 'express';
 import { listSections, getSection, updateSection } from '../services/companyInfoService.js';
+import * as rateCardService from '../services/rateCardService.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
+
+// Structured rate-card sections (service_rates, material_costs) -- rows of
+// { name, unit, rate, cost } in their own tables, not the freeform `content`
+// column. See docs/requirements/company-info.md.
+router.get('/:sectionKey/items', asyncHandler(async (req, res) => {
+  if (!rateCardService.isRateCardKey(req.params.sectionKey)) {
+    return res.status(400).json({ error: 'Not a structured rate card section' });
+  }
+  res.json(await rateCardService.listItems(req.params.sectionKey));
+}));
+
+router.post('/:sectionKey/items', asyncHandler(async (req, res) => {
+  if (!rateCardService.isRateCardKey(req.params.sectionKey)) {
+    return res.status(400).json({ error: 'Not a structured rate card section' });
+  }
+  const { name, unit, rate, cost } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  const item = await rateCardService.createItem(req.params.sectionKey, { name, unit, rate, cost });
+  res.status(201).json(item);
+}));
+
+router.put('/:sectionKey/items/:itemId', asyncHandler(async (req, res) => {
+  if (!rateCardService.isRateCardKey(req.params.sectionKey)) {
+    return res.status(400).json({ error: 'Not a structured rate card section' });
+  }
+  const { name, unit, rate, cost } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  const item = await rateCardService.updateItem(req.params.sectionKey, req.params.itemId, { name, unit, rate, cost });
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  res.json(item);
+}));
+
+router.delete('/:sectionKey/items/:itemId', asyncHandler(async (req, res) => {
+  if (!rateCardService.isRateCardKey(req.params.sectionKey)) {
+    return res.status(400).json({ error: 'Not a structured rate card section' });
+  }
+  const deleted = await rateCardService.deleteItem(req.params.sectionKey, req.params.itemId);
+  if (!deleted) return res.status(404).json({ error: 'Item not found' });
+  res.status(204).end();
+}));
 
 router.get('/', asyncHandler(async (req, res) => {
   res.json(await listSections());

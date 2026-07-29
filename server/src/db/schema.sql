@@ -19,10 +19,50 @@ CREATE TABLE IF NOT EXISTS company_info_sections (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Structured rate cards (docs/requirements/company-info.md): rows of
+-- { name, unit, rate, cost }. rate = billed to customer, cost = internal.
+-- Two tables (not one generic "rate_items" table) because Service Rates and
+-- Material Costs are independently listed/edited sections in the UI.
+CREATE TABLE IF NOT EXISTS service_rate_items (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  unit        TEXT NOT NULL DEFAULT '',
+  rate        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  cost        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS material_cost_items (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  unit        TEXT NOT NULL DEFAULT '',
+  rate        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  cost        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Structured customer records (docs/requirements/customers.md). Replaces
+-- the old free-text Project.customer column -- see the migration below.
+CREATE TABLE IF NOT EXISTS customers (
+  id                    SERIAL PRIMARY KEY,
+  name                  TEXT NOT NULL,
+  address               TEXT NOT NULL DEFAULT '',
+  primary_contact_name  TEXT NOT NULL DEFAULT '',
+  phone                 TEXT NOT NULL DEFAULT '',
+  email                 TEXT NOT NULL DEFAULT '',
+  -- Freeform: customer notes are narrative, not computed. See company-info.md
+  -- for the same structured/freeform split principle applied here.
+  notes                 TEXT NOT NULL DEFAULT '',
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS projects (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL,
-  customer    TEXT NOT NULL DEFAULT '',
+  customer_id INTEGER REFERENCES customers(id),
   status      TEXT NOT NULL DEFAULT '',
   historical  BOOLEAN NOT NULL DEFAULT false,
   -- Project definition: JSON blob keyed by component name (sow, location,
@@ -33,6 +73,12 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration for pre-existing databases: the CREATE TABLE above only takes
+-- effect on a fresh install. customer_id replaces the old free-text
+-- `customer` column -- see docs/requirements/customers.md.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id);
+ALTER TABLE projects DROP COLUMN IF EXISTS customer;
 
 CREATE TABLE IF NOT EXISTS files (
   id          SERIAL PRIMARY KEY,

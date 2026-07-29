@@ -82,7 +82,7 @@ export default function ProjectPage() {
             ← Projects
           </Link>
           <h1 className="text-lg font-semibold text-text">{project.name}</h1>
-          <p className="text-xs text-text-secondary">{project.customer || 'No customer set'}</p>
+          <p className="text-xs text-text-secondary">{project.customer_name || 'No customer set'}</p>
         </div>
       </div>
 

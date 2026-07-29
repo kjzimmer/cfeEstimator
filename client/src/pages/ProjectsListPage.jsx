@@ -5,7 +5,6 @@ import { api } from '../lib/api.js';
 function NewProjectForm({ onCreated }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [customer, setCustomer] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -14,9 +13,8 @@ function NewProjectForm({ onCreated }) {
     setSubmitting(true);
     setError('');
     try {
-      const project = await api.createProject({ name, customer });
+      const project = await api.createProject({ name });
       setName('');
-      setCustomer('');
       setOpen(false);
       onCreated(project);
     } catch (err) {
@@ -52,14 +50,9 @@ function NewProjectForm({ onCreated }) {
           className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
         />
       </div>
-      <div>
-        <label className="block text-xs font-medium text-text-secondary mb-1">Customer</label>
-        <input
-          value={customer}
-          onChange={(e) => setCustomer(e.target.value)}
-          className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
-        />
-      </div>
+      <p className="text-xs text-text-secondary -mt-1">
+        Customer selection isn't wired up yet — coming with the Customers phase.
+      </p>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex items-center gap-2">
         <button
@@ -137,7 +130,7 @@ export default function ProjectsListPage() {
             >
               <div>
                 <p className="text-sm font-medium text-text">{p.name}</p>
-                <p className="text-xs text-text-secondary">{p.customer || 'No customer set'}</p>
+                <p className="text-xs text-text-secondary">{p.customer_name || 'No customer set'}</p>
               </div>
               <span className="text-xs font-mono text-text-secondary">{p.status || '—'}</span>
             </Link>

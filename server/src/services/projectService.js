@@ -1,28 +1,37 @@
 import { pool } from '../db/pool.js';
 
+// customer_name is joined in for display convenience -- the Customers CRUD
+// UI (docs/requirements/customers.md) isn't built yet, so this keeps project
+// list/detail views showing a customer without every caller needing its own join.
+const SELECT_WITH_CUSTOMER = `
+  SELECT p.*, c.name AS customer_name
+  FROM projects p
+  LEFT JOIN customers c ON c.id = p.customer_id
+`;
+
 export async function listProjects({ historical } = {}) {
   if (historical === undefined) {
-    const { rows } = await pool.query('SELECT * FROM projects ORDER BY updated_at DESC');
+    const { rows } = await pool.query(`${SELECT_WITH_CUSTOMER} ORDER BY p.updated_at DESC`);
     return rows;
   }
   const { rows } = await pool.query(
-    'SELECT * FROM projects WHERE historical = $1 ORDER BY updated_at DESC',
+    `${SELECT_WITH_CUSTOMER} WHERE p.historical = $1 ORDER BY p.updated_at DESC`,
     [historical]
   );
   return rows;
 }
 
 export async function getProject(id) {
-  const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
+  const { rows } = await pool.query(`${SELECT_WITH_CUSTOMER} WHERE p.id = $1`, [id]);
   return rows[0] || null;
 }
 
-export async function createProject({ name, customer = '', status = '', historical = false, createdBy }) {
+export async function createProject({ name, customerId = null, status = '', historical = false, createdBy }) {
   const { rows } = await pool.query(
-    `INSERT INTO projects (name, customer, status, historical, created_by)
+    `INSERT INTO projects (name, customer_id, status, historical, created_by)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [name, customer, status, historical, createdBy]
+    [name, customerId, status, historical, createdBy]
   );
   return rows[0];
 }

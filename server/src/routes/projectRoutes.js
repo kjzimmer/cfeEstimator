@@ -16,11 +16,11 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
-  const { name, customer, status, historical } = req.body;
+  const { name, customerId, status, historical } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
   const project = await projectService.createProject({
     name,
-    customer,
+    customerId: customerId ?? null,
     status,
     historical: Boolean(historical),
     createdBy: req.user.sub,

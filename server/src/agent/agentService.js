@@ -60,7 +60,7 @@ Use the update_project_component tool proactively whenever you learn something c
 ## Company context
 ${companyContext}
 
-## Current project: ${project.name} (customer: ${project.customer || 'unspecified'})
+## Current project: ${project.name} (customer: ${project.customer_name || 'unspecified'})
 ## Current project definition
 ${definitionContext}
 
