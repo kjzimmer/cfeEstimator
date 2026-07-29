@@ -16,14 +16,11 @@ export function requireAuth(req, res, next) {
   }
 }
 
-// Placeholder for future role checks -- single role in use today, but every
-// call site that will eventually need a role gate goes through here.
-// See docs/requirements/auth.md.
-export function requireRole(...allowedRoles) {
-  return (req, res, next) => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    next();
-  };
+// Admin-only capabilities are enforced here, server-side -- never just
+// hidden in the UI. See docs/requirements/auth.md.
+export function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
 }

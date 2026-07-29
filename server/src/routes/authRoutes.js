@@ -12,14 +12,14 @@ router.post('/login', asyncHandler(async (req, res) => {
   }
 
   const user = await findUserByEmail(email.toLowerCase());
-  if (!user || !(await verifyPassword(password, user.password_hash))) {
+  if (!user || !user.is_active || !(await verifyPassword(password, user.password_hash))) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
   const token = signToken(user);
   res.json({
     token,
-    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    user: { id: user.id, email: user.email, name: user.name, isAdmin: user.is_admin },
   });
 }));
 

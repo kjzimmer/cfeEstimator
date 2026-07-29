@@ -7,9 +7,21 @@ CREATE TABLE IF NOT EXISTS users (
   email         TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   name          TEXT NOT NULL,
-  role          TEXT NOT NULL DEFAULT 'employee',
+  -- Replaces the earlier placeholder `role` text field -- see docs/requirements/auth.md.
+  -- A boolean is enough granularity for now; nothing stops this becoming a
+  -- fuller role system later if a third tier is ever needed.
+  is_admin      BOOLEAN NOT NULL DEFAULT false,
+  -- Deactivated users are kept, not deleted, so history (created_by on
+  -- projects/messages) stays intact -- see auth.md's "add/deactivate users".
+  is_active     BOOLEAN NOT NULL DEFAULT true,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration for pre-existing databases: the CREATE TABLE above only takes
+-- effect on a fresh install.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE users DROP COLUMN IF EXISTS role;
 
 CREATE TABLE IF NOT EXISTS company_info_sections (
   section_key TEXT PRIMARY KEY,

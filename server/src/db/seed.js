@@ -3,9 +3,9 @@ import { pool } from './pool.js';
 import { hashPassword } from '../utils/auth.js';
 
 const DEMO_USERS = [
-  { email: 'estimator@cfe.demo', password: 'demo1234', name: 'Sam Estimator', role: 'employee' },
-  { email: 'pm@cfe.demo', password: 'demo1234', name: 'Jordan PM', role: 'employee' },
-  { email: 'admin@cfe.demo', password: 'demo1234', name: 'Alex Admin', role: 'employee' },
+  { email: 'estimator@cfe.demo', password: 'demo1234', name: 'Sam Estimator', isAdmin: false },
+  { email: 'pm@cfe.demo', password: 'demo1234', name: 'Jordan PM', isAdmin: false },
+  { email: 'admin@cfe.demo', password: 'demo1234', name: 'Alex Admin', isAdmin: true },
 ];
 
 const COMPANY_INFO_SECTIONS = [
@@ -58,10 +58,10 @@ async function seed() {
   for (const u of DEMO_USERS) {
     const passwordHash = await hashPassword(u.password);
     await pool.query(
-      `INSERT INTO users (email, password_hash, name, role)
+      `INSERT INTO users (email, password_hash, name, is_admin)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (email) DO NOTHING`,
-      [u.email, passwordHash, u.name, u.role]
+      [u.email, passwordHash, u.name, u.isAdmin]
     );
   }
 

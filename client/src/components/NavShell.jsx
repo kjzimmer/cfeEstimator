@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 const NAV_ITEMS = [
   { to: '/projects', label: 'Projects' },
   { to: '/company-info', label: 'Company Info' },
+  { to: '/users', label: 'Users', adminOnly: true },
 ];
 
 function navLinkClass({ isActive }) {
@@ -28,7 +29,7 @@ export default function NavShell() {
               <span className="font-semibold text-sm text-text tracking-tight">CFE Estimator</span>
             </div>
             <nav className="flex items-center gap-1">
-              {NAV_ITEMS.map((item) => (
+              {NAV_ITEMS.filter((item) => !item.adminOnly || user?.isAdmin).map((item) => (
                 <NavLink key={item.to} to={item.to} className={navLinkClass}>
                   {item.label}
                 </NavLink>

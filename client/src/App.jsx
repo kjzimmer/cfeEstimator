@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage.jsx';
 import ProjectsListPage from './pages/ProjectsListPage.jsx';
 import ProjectPage from './pages/ProjectPage.jsx';
 import CompanyInfoPage from './pages/CompanyInfoPage.jsx';
+import UsersPage from './pages/UsersPage.jsx';
 
 export default function App() {
   return (
@@ -23,6 +24,14 @@ export default function App() {
           <Route path="/projects" element={<ProjectsListPage />} />
           <Route path="/projects/:id" element={<ProjectPage />} />
           <Route path="/company-info" element={<CompanyInfoPage />} />
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute adminOnly>
+                <UsersPage />
+              </ProtectedRoute>
+            }
+          />
         </Route>
         <Route path="*" element={<Navigate to="/projects" replace />} />
       </Routes>

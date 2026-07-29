@@ -54,6 +54,10 @@ export const api = {
       body: { content },
     }),
 
+  listUsers: () => request('/users'),
+  createUser: (payload) => request('/users', { method: 'POST', body: payload }),
+  updateUser: (id, payload) => request(`/users/${id}`, { method: 'PUT', body: payload }),
+
   listMessages: (projectId) => request(`/projects/${projectId}/messages`),
   sendMessage: (projectId, content, type = 'text') =>
     request(`/projects/${projectId}/messages`, { method: 'POST', body: { content, type } }),

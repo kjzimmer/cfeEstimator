@@ -1,9 +1,17 @@
 import { Router } from 'express';
 import { listSections, getSection, updateSection } from '../services/companyInfoService.js';
 import * as rateCardService from '../services/rateCardService.js';
+import { requireAdmin } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
+
+// cost is admin-only wherever rate cards appear (docs/requirements/company-info.md)
+// -- stripped here at the API boundary, not left to callers to remember.
+function omitCostForNonAdmins(items, req) {
+  if (req.user?.isAdmin) return items;
+  return items.map(({ cost, ...rest }) => rest);
+}
 
 // Structured rate-card sections (service_rates, material_costs) -- rows of
 // { name, unit, rate, cost } in their own tables, not the freeform `content`
@@ -12,10 +20,11 @@ router.get('/:sectionKey/items', asyncHandler(async (req, res) => {
   if (!rateCardService.isRateCardKey(req.params.sectionKey)) {
     return res.status(400).json({ error: 'Not a structured rate card section' });
   }
-  res.json(await rateCardService.listItems(req.params.sectionKey));
+  const items = await rateCardService.listItems(req.params.sectionKey);
+  res.json(omitCostForNonAdmins(items, req));
 }));
 
-router.post('/:sectionKey/items', asyncHandler(async (req, res) => {
+router.post('/:sectionKey/items', requireAdmin, asyncHandler(async (req, res) => {
   if (!rateCardService.isRateCardKey(req.params.sectionKey)) {
     return res.status(400).json({ error: 'Not a structured rate card section' });
   }
@@ -25,7 +34,7 @@ router.post('/:sectionKey/items', asyncHandler(async (req, res) => {
   res.status(201).json(item);
 }));
 
-router.put('/:sectionKey/items/:itemId', asyncHandler(async (req, res) => {
+router.put('/:sectionKey/items/:itemId', requireAdmin, asyncHandler(async (req, res) => {
   if (!rateCardService.isRateCardKey(req.params.sectionKey)) {
     return res.status(400).json({ error: 'Not a structured rate card section' });
   }
@@ -36,7 +45,7 @@ router.put('/:sectionKey/items/:itemId', asyncHandler(async (req, res) => {
   res.json(item);
 }));
 
-router.delete('/:sectionKey/items/:itemId', asyncHandler(async (req, res) => {
+router.delete('/:sectionKey/items/:itemId', requireAdmin, asyncHandler(async (req, res) => {
   if (!rateCardService.isRateCardKey(req.params.sectionKey)) {
     return res.status(400).json({ error: 'Not a structured rate card section' });
   }
@@ -55,7 +64,7 @@ router.get('/:sectionKey', asyncHandler(async (req, res) => {
   res.json(section);
 }));
 
-router.put('/:sectionKey', asyncHandler(async (req, res) => {
+router.put('/:sectionKey', requireAdmin, asyncHandler(async (req, res) => {
   const { content } = req.body;
   if (typeof content !== 'string') {
     return res.status(400).json({ error: 'content (string) is required' });
