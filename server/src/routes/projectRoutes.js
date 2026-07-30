@@ -3,12 +3,26 @@ import multer from 'multer';
 import * as projectService from '../services/projectService.js';
 import * as messageService from '../services/messageService.js';
 import * as storage from '../services/storage.js';
+import * as workOrderService from '../services/workOrderService.js';
+import * as rateCardService from '../services/rateCardService.js';
+import * as companyIdentityService from '../services/companyIdentityService.js';
+import * as customerService from '../services/customerService.js';
+import { generateWorkOrderPdf } from '../services/workOrderPdfService.js';
 import { runAgentTurn } from '../agent/agentService.js';
+import { requireAdmin } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const FILE_TYPES = ['site-note', 'photo', 'work-order', 'other'];
 const router = Router();
+
+// cost is admin-only wherever it appears -- see docs/requirements/company-info.md
+// and work-orders.md. Stripped here at the API boundary for line items;
+// the PDF path never has it in scope to begin with (see workOrderService.getLineItemsForPdf).
+function omitCostForNonAdmins(workOrder, req) {
+  if (req.user?.isAdmin) return workOrder;
+  return { ...workOrder, lineItems: workOrder.lineItems.map(({ cost, ...rest }) => rest) };
+}
 
 router.get('/', asyncHandler(async (req, res) => {
   const { historical } = req.query;
@@ -128,6 +142,165 @@ router.get('/:id/files/:fileId', asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', file.mime_type);
   res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
   res.send(file.data);
+}));
+
+// --- Work Orders (docs/requirements/work-orders.md) ---
+// Not admin-gated -- generating/drafting a work order isn't the sensitive
+// action, what's in it is (cost, gated separately below and structurally
+// absent from the PDF path).
+
+router.get('/:id/work-orders', asyncHandler(async (req, res) => {
+  res.json(await workOrderService.listWorkOrders(req.params.id));
+}));
+
+router.get('/:id/work-orders/draft', asyncHandler(async (req, res) => {
+  const draft = await workOrderService.getCurrentDraft(req.params.id);
+  if (!draft) return res.json(null);
+  res.json(omitCostForNonAdmins(draft, req));
+}));
+
+router.post('/:id/work-orders/draft', asyncHandler(async (req, res) => {
+  const draft = await workOrderService.ensureDraft(req.params.id, req.user.sub);
+  res.status(201).json(omitCostForNonAdmins(draft, req));
+}));
+
+router.get('/:id/work-orders/:woId', asyncHandler(async (req, res) => {
+  const workOrder = await workOrderService.getWorkOrder(req.params.woId);
+  if (!workOrder || String(workOrder.project_id) !== req.params.id) {
+    return res.status(404).json({ error: 'Work order not found' });
+  }
+  res.json(omitCostForNonAdmins(workOrder, req));
+}));
+
+router.put('/:id/work-orders/:woId', asyncHandler(async (req, res) => {
+  const { scopeText = '', siteLocation = '', contingencyPercent = 0, terms = '' } = req.body;
+  try {
+    const updated = await workOrderService.updateDraftFields(req.params.woId, {
+      scopeText,
+      siteLocation,
+      contingencyPercent,
+      terms,
+    });
+    res.json(omitCostForNonAdmins(updated, req));
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+}));
+
+function validateLinePayload(body) {
+  const { rateCardType, rateCardItemId, rateCardItemName, name, unit, qty, rate } = body;
+  if (rateCardType && !rateCardService.isRateCardKey(rateCardType)) {
+    return { error: 'Unknown rate card type' };
+  }
+  if (rateCardType && !rateCardItemId && !rateCardItemName) {
+    return { error: 'rateCardItemId or rateCardItemName is required with rateCardType' };
+  }
+  if (!rateCardType && !name) {
+    return { error: 'name is required for a manual line item' };
+  }
+  return {
+    value: {
+      rateCardType,
+      rateCardItemId,
+      rateCardItemName,
+      name,
+      unit,
+      qty: Number(qty) || 1,
+      rate: Number(rate) || 0,
+    },
+  };
+}
+
+router.post('/:id/work-orders/:woId/line-items', asyncHandler(async (req, res) => {
+  const { error, value } = validateLinePayload(req.body);
+  if (error) return res.status(400).json({ error });
+  try {
+    const item = await workOrderService.addLineItem(req.params.woId, value);
+    res.status(201).json(req.user.isAdmin ? item : { ...item, cost: undefined });
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+}));
+
+router.put('/:id/work-orders/:woId/line-items/:itemId', asyncHandler(async (req, res) => {
+  const { name, unit = '', qty, rate } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  try {
+    const item = await workOrderService.updateLineItem(req.params.woId, req.params.itemId, {
+      name,
+      unit,
+      qty: Number(qty) || 0,
+      rate: Number(rate) || 0,
+    });
+    if (!item) return res.status(404).json({ error: 'Line item not found' });
+    res.json(req.user.isAdmin ? item : { ...item, cost: undefined });
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+}));
+
+router.delete('/:id/work-orders/:woId/line-items/:itemId', asyncHandler(async (req, res) => {
+  try {
+    const deleted = await workOrderService.deleteLineItem(req.params.woId, req.params.itemId);
+    if (!deleted) return res.status(404).json({ error: 'Line item not found' });
+    res.status(204).end();
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+}));
+
+// Generates the PDF and locks the draft. The PDF path only ever reads
+// getLineItemsForPdf() -- structurally no access to cost, not just
+// "has it but doesn't render it." See docs/requirements/work-orders.md.
+router.post('/:id/work-orders/:woId/finalize', asyncHandler(async (req, res) => {
+  const workOrder = await workOrderService.getWorkOrder(req.params.woId);
+  if (!workOrder || String(workOrder.project_id) !== req.params.id) {
+    return res.status(404).json({ error: 'Work order not found' });
+  }
+  if (workOrder.status !== 'draft') {
+    return res.status(409).json({ error: 'Work order is not in draft state' });
+  }
+
+  const [identity, project, lineItems] = await Promise.all([
+    companyIdentityService.getIdentity(),
+    projectService.getProject(req.params.id),
+    workOrderService.getLineItemsForPdf(req.params.woId),
+  ]);
+  const customer = project.customer_id ? await customerService.getCustomer(project.customer_id) : null;
+
+  const pdfBuffer = await generateWorkOrderPdf({
+    identity,
+    customer,
+    project,
+    workOrder: { ...workOrder, finalized_at: new Date() },
+    lineItems,
+  });
+
+  const file = await storage.put({
+    projectId: req.params.id,
+    filename: `Work Order - ${project.name} v${workOrder.revision}.pdf`,
+    mimeType: 'application/pdf',
+    buffer: pdfBuffer,
+    uploadedBy: req.user.sub,
+    type: 'work-order',
+    source: 'system',
+  });
+
+  const finalized = await workOrderService.finalize(req.params.woId, req.user.sub, file.id);
+  res.json(omitCostForNonAdmins(finalized, req));
+}));
+
+router.post('/:id/work-orders/:woId/revise', asyncHandler(async (req, res) => {
+  try {
+    const revision = await workOrderService.createRevision(req.params.woId, req.user.sub);
+    res.status(201).json(omitCostForNonAdmins(revision, req));
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+}));
+
+router.get('/:id/work-orders/:woId/profit', requireAdmin, asyncHandler(async (req, res) => {
+  res.json(await workOrderService.getProfitSummary(req.params.woId));
 }));
 
 export default router;

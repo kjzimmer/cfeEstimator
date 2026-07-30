@@ -71,6 +71,29 @@ export const api = {
       body: { content },
     }),
 
+  listWorkOrders: (projectId) => request(`/projects/${projectId}/work-orders`),
+  getWorkOrderDraft: (projectId) => request(`/projects/${projectId}/work-orders/draft`),
+  createWorkOrderDraft: (projectId) =>
+    request(`/projects/${projectId}/work-orders/draft`, { method: 'POST' }),
+  getWorkOrder: (projectId, woId) => request(`/projects/${projectId}/work-orders/${woId}`),
+  updateWorkOrder: (projectId, woId, payload) =>
+    request(`/projects/${projectId}/work-orders/${woId}`, { method: 'PUT', body: payload }),
+  addWorkOrderLineItem: (projectId, woId, payload) =>
+    request(`/projects/${projectId}/work-orders/${woId}/line-items`, { method: 'POST', body: payload }),
+  updateWorkOrderLineItem: (projectId, woId, itemId, payload) =>
+    request(`/projects/${projectId}/work-orders/${woId}/line-items/${itemId}`, {
+      method: 'PUT',
+      body: payload,
+    }),
+  deleteWorkOrderLineItem: (projectId, woId, itemId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/line-items/${itemId}`, { method: 'DELETE' }),
+  finalizeWorkOrder: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/finalize`, { method: 'POST' }),
+  reviseWorkOrder: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/revise`, { method: 'POST' }),
+  getWorkOrderProfit: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/profit`),
+
   listUsers: () => request('/users'),
   createUser: (payload) => request('/users', { method: 'POST', body: payload }),
   updateUser: (id, payload) => request(`/users/${id}`, { method: 'PUT', body: payload }),

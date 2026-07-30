@@ -25,6 +25,24 @@ export async function listItems(cardKey) {
   return rows;
 }
 
+// Used server-side to resolve a work order line item's rate/cost from its
+// source rate card at add-time -- never trust a client-supplied rate/cost
+// for a rate-card-backed line. See docs/requirements/work-orders.md.
+export async function getItem(cardKey, itemId) {
+  const { rows } = await pool.query(`SELECT * FROM ${tableFor(cardKey)} WHERE id = $1`, [itemId]);
+  return rows[0] || null;
+}
+
+// Name-based lookup for the agent, which works from conversation text, not
+// internal ids. Case-insensitive exact match.
+export async function findItemByName(cardKey, name) {
+  const { rows } = await pool.query(
+    `SELECT * FROM ${tableFor(cardKey)} WHERE lower(name) = lower($1) LIMIT 1`,
+    [name]
+  );
+  return rows[0] || null;
+}
+
 export async function createItem(cardKey, { name, unit = '', rate = 0, cost = 0 }) {
   const { rows } = await pool.query(
     `INSERT INTO ${tableFor(cardKey)} (name, unit, rate, cost) VALUES ($1, $2, $3, $4) RETURNING *`,

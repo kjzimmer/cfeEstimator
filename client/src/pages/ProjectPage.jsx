@@ -5,11 +5,13 @@ import { useAuth } from '../context/AuthContext.jsx';
 import ConversationPanel from '../components/ConversationPanel.jsx';
 import DefinitionPanel from '../components/DefinitionPanel.jsx';
 import DocumentsPanel from '../components/DocumentsPanel.jsx';
+import WorkOrderPanel from '../components/WorkOrderPanel.jsx';
 
 const PULSE_DURATION_MS = 1700;
 const TABS = [
   { key: 'definition', label: 'Definition' },
   { key: 'documents', label: 'Documents' },
+  { key: 'workOrder', label: 'Work Order' },
 ];
 
 export default function ProjectPage() {
@@ -121,11 +123,11 @@ export default function ProjectPage() {
             ))}
           </div>
           <div className="flex-1 min-h-0">
-            {activeTab === 'definition' ? (
+            {activeTab === 'definition' && (
               <DefinitionPanel definition={project.definition} pulsingKeys={pulsingKeys} />
-            ) : (
-              <DocumentsPanel projectId={id} />
             )}
+            {activeTab === 'documents' && <DocumentsPanel projectId={id} />}
+            {activeTab === 'workOrder' && <WorkOrderPanel projectId={id} isAdmin={Boolean(user?.isAdmin)} />}
           </div>
         </div>
       </div>

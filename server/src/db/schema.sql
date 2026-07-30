@@ -177,3 +177,56 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_project_id ON messages(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
+
+-- Work Orders (docs/requirements/work-orders.md). draft -> finalized is
+-- one-way; "editing" a finalized work order means creating a new revision
+-- (a new row), not mutating this one -- see work_order_line_items.cost note
+-- below for the other key invariant (the cost/PDF firewall).
+CREATE TABLE IF NOT EXISTS work_orders (
+  id                    SERIAL PRIMARY KEY,
+  project_id            INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  revision              INTEGER NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'finalized')),
+  scope_text            TEXT NOT NULL DEFAULT '',
+  site_location         TEXT NOT NULL DEFAULT '',
+  contingency_percent   NUMERIC(5,2) NOT NULL DEFAULT 0,
+  terms                 TEXT NOT NULL DEFAULT '',
+  -- Set at finalize time -- the generated PDF, saved as a Project Document
+  -- (files.type = 'work-order', files.source = 'system').
+  file_id               INTEGER REFERENCES files(id),
+  created_by            INTEGER REFERENCES users(id),
+  finalized_by          INTEGER REFERENCES users(id),
+  finalized_at          TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (project_id, revision)
+);
+
+-- At most one draft per project at a time.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_orders_one_draft_per_project
+  ON work_orders(project_id) WHERE status = 'draft';
+
+CREATE TABLE IF NOT EXISTS work_order_line_items (
+  id              SERIAL PRIMARY KEY,
+  work_order_id   INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  -- Which rate card this was added from, if any -- NULL for a manually
+  -- typed line with no backing rate-card entry.
+  rate_card_type  TEXT CHECK (rate_card_type IN ('service_rates', 'material_costs', 'equipment_rates', 'employee_role_rates')),
+  name            TEXT NOT NULL,
+  unit            TEXT NOT NULL DEFAULT '',
+  qty             NUMERIC(12,2) NOT NULL DEFAULT 1,
+  rate            NUMERIC(12,2) NOT NULL DEFAULT 0,
+  -- Captured server-side from the source rate card at add-time (never
+  -- client-supplied), nullable for manual lines. This column exists so the
+  -- admin-only profit view can work -- the PDF-generation query is a
+  -- separate, dedicated SELECT that never includes this column. That's the
+  -- actual guardrail from work-orders.md: not "has cost but doesn't render
+  -- it," structurally absent from the query the PDF path runs.
+  cost            NUMERIC(12,2),
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_work_orders_project_id ON work_orders(project_id);
+CREATE INDEX IF NOT EXISTS idx_work_order_line_items_work_order_id ON work_order_line_items(work_order_id);
