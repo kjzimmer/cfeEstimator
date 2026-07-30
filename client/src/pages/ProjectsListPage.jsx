@@ -2,19 +2,36 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 
+const QUICK_ADD_VALUE = '__quick_add__';
+
 function NewProjectForm({ onCreated }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [customers, setCustomers] = useState(null);
+  const [customerId, setCustomerId] = useState('');
+  const [quickAddName, setQuickAddName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    api.listCustomers().then(setCustomers).catch((err) => setError(err.message));
+  }, [open]);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setSubmitting(true);
     setError('');
     try {
-      const project = await api.createProject({ name });
+      let resolvedCustomerId = customerId ? Number(customerId) : null;
+      if (customerId === QUICK_ADD_VALUE) {
+        const customer = await api.createCustomer({ name: quickAddName });
+        resolvedCustomerId = customer.id;
+      }
+      const project = await api.createProject({ name, customerId: resolvedCustomerId });
       setName('');
+      setCustomerId('');
+      setQuickAddName('');
       setOpen(false);
       onCreated(project);
     } catch (err) {
@@ -50,9 +67,36 @@ function NewProjectForm({ onCreated }) {
           className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
         />
       </div>
-      <p className="text-xs text-text-secondary -mt-1">
-        Customer selection isn't wired up yet — coming with the Customers phase.
-      </p>
+      <div>
+        <label className="block text-xs font-medium text-text-secondary mb-1">Customer</label>
+        <select
+          value={customerId}
+          onChange={(e) => setCustomerId(e.target.value)}
+          className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+        >
+          <option value="">No customer</option>
+          {customers?.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+          <option value={QUICK_ADD_VALUE}>+ New customer…</option>
+        </select>
+      </div>
+      {customerId === QUICK_ADD_VALUE && (
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">New customer name</label>
+          <input
+            value={quickAddName}
+            onChange={(e) => setQuickAddName(e.target.value)}
+            required
+            className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+          />
+          <p className="text-xs text-text-secondary mt-1">
+            Full contact details can be added from the customer's page later.
+          </p>
+        </div>
+      )}
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex items-center gap-2">
         <button

@@ -1,10 +1,27 @@
 import { Router } from 'express';
 import { listSections, getSection, updateSection } from '../services/companyInfoService.js';
 import * as rateCardService from '../services/rateCardService.js';
+import * as companyIdentityService from '../services/companyIdentityService.js';
 import { requireAdmin } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
+
+// Registered before the generic /:sectionKey routes below so this literal
+// path takes precedence -- identity is a single structured record, not a
+// company_info_sections row. See docs/requirements/company-info.md.
+router.get('/identity', asyncHandler(async (req, res) => {
+  res.json(await companyIdentityService.getIdentity());
+}));
+
+router.put('/identity', requireAdmin, asyncHandler(async (req, res) => {
+  const { companyName, address, phone, email, website } = req.body;
+  const identity = await companyIdentityService.updateIdentity(
+    { companyName, address, phone, email, website },
+    req.user.sub
+  );
+  res.json(identity);
+}));
 
 // cost is admin-only wherever rate cards appear (docs/requirements/company-info.md)
 // -- stripped here at the API boundary, not left to callers to remember.

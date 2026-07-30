@@ -6,6 +6,8 @@ import { pool } from '../db/pool.js';
 const TABLES = {
   service_rates: 'service_rate_items',
   material_costs: 'material_cost_items',
+  equipment_rates: 'equipment_rate_items',
+  employee_role_rates: 'employee_role_rate_items',
 };
 
 function tableFor(cardKey) {

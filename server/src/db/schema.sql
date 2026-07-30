@@ -23,6 +23,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT fal
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users DROP COLUMN IF EXISTS role;
 
+-- Freeform Company Info sections only (Products & Services, Employee Base
+-- general notes) -- structured sections each get their own table below.
+-- See docs/requirements/company-info.md.
 CREATE TABLE IF NOT EXISTS company_info_sections (
   section_key TEXT PRIMARY KEY,
   title       TEXT NOT NULL,
@@ -31,10 +34,29 @@ CREATE TABLE IF NOT EXISTS company_info_sections (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Cleanup for pre-existing databases: identity/assets/service_rates/
+-- material_costs used to live here as freeform rows before being split into
+-- their own structured tables. No-op once already cleaned up.
+DELETE FROM company_info_sections WHERE section_key IN ('identity', 'assets', 'service_rates', 'material_costs');
+
+-- Single-record company identity -- exactly what appears in a work order
+-- header. id is pinned to 1 (CHECK) since there's only ever one row.
+CREATE TABLE IF NOT EXISTS company_identity (
+  id            INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  company_name  TEXT NOT NULL DEFAULT '',
+  address       TEXT NOT NULL DEFAULT '',
+  phone         TEXT NOT NULL DEFAULT '',
+  email         TEXT NOT NULL DEFAULT '',
+  website       TEXT NOT NULL DEFAULT '',
+  updated_by    INTEGER REFERENCES users(id),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO company_identity (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
 -- Structured rate cards (docs/requirements/company-info.md): rows of
 -- { name, unit, rate, cost }. rate = billed to customer, cost = internal.
--- Two tables (not one generic "rate_items" table) because Service Rates and
--- Material Costs are independently listed/edited sections in the UI.
+-- Four tables (not one generic "rate_items" table) because each card is an
+-- independently listed/edited section in the UI.
 CREATE TABLE IF NOT EXISTS service_rate_items (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL,
@@ -46,6 +68,29 @@ CREATE TABLE IF NOT EXISTS service_rate_items (
 );
 
 CREATE TABLE IF NOT EXISTS material_cost_items (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  unit        TEXT NOT NULL DEFAULT '',
+  rate        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  cost        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Equipment/Asset Rate Card -- unit is typically hr/day.
+CREATE TABLE IF NOT EXISTS equipment_rate_items (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  unit        TEXT NOT NULL DEFAULT '',
+  rate        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  cost        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Employee Role Rate Card -- rate by role (e.g. "Laborer", "Operator"), not
+-- a named staffing roster. Distinct from the freeform Employee Base notes.
+CREATE TABLE IF NOT EXISTS employee_role_rate_items (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL,
   unit        TEXT NOT NULL DEFAULT '',

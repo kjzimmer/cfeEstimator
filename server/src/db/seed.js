@@ -8,13 +8,11 @@ const DEMO_USERS = [
   { email: 'admin@cfe.demo', password: 'demo1234', name: 'Alex Admin', isAdmin: true },
 ];
 
+// Freeform sections only -- Identity and the four rate cards are structured
+// tables now, seeded separately below. See docs/requirements/company-info.md.
 const COMPANY_INFO_SECTIONS = [
-  { section_key: 'identity', title: 'Identity' },
   { section_key: 'products_services', title: 'Products & Services' },
-  { section_key: 'assets', title: 'Assets' },
   { section_key: 'employee_base', title: 'Employee Base' },
-  { section_key: 'service_rates', title: 'Service Rates' },
-  { section_key: 'material_costs', title: 'Material Costs' },
 ];
 
 // Plausible-but-fictional example rows -- structured per docs/requirements/company-info.md
@@ -41,6 +39,26 @@ const MATERIAL_COST_EXAMPLES = [
   { name: 'Culvert Pipe (18in HDPE)', unit: 'linear ft', rate: 32, cost: 21 },
   { name: 'Silt Fence Fabric', unit: 'linear ft', rate: 2.25, cost: 1.4 },
   { name: 'Rip Rap', unit: 'ton', rate: 48, cost: 33 },
+];
+
+const EQUIPMENT_RATE_EXAMPLES = [
+  { name: 'Mini Excavator (Cat 305)', unit: 'day', rate: 650, cost: 420 },
+  { name: 'Standard Excavator (Cat 320)', unit: 'day', rate: 950, cost: 640 },
+  { name: 'Skid Steer', unit: 'day', rate: 380, cost: 240 },
+  { name: 'Dump Truck (10 yd)', unit: 'hr', rate: 95, cost: 60 },
+  { name: 'Compactor / Plate Tamper', unit: 'day', rate: 120, cost: 75 },
+  { name: 'Bulldozer (D5)', unit: 'day', rate: 1100, cost: 750 },
+  { name: 'Grader', unit: 'day', rate: 900, cost: 610 },
+  { name: 'Trencher', unit: 'day', rate: 420, cost: 270 },
+];
+
+const EMPLOYEE_ROLE_RATE_EXAMPLES = [
+  { name: 'Laborer', unit: 'hr', rate: 55, cost: 32 },
+  { name: 'Equipment Operator', unit: 'hr', rate: 85, cost: 52 },
+  { name: 'Crew Foreman', unit: 'hr', rate: 110, cost: 68 },
+  { name: 'Site Estimator', unit: 'hr', rate: 125, cost: 78 },
+  { name: 'CDL Driver', unit: 'hr', rate: 75, cost: 46 },
+  { name: 'Project Manager', unit: 'hr', rate: 140, cost: 90 },
 ];
 
 async function seedRateCardExamples(table, rows) {
@@ -76,11 +94,14 @@ async function seed() {
 
   await seedRateCardExamples('service_rate_items', SERVICE_RATE_EXAMPLES);
   await seedRateCardExamples('material_cost_items', MATERIAL_COST_EXAMPLES);
+  await seedRateCardExamples('equipment_rate_items', EQUIPMENT_RATE_EXAMPLES);
+  await seedRateCardExamples('employee_role_rate_items', EMPLOYEE_ROLE_RATE_EXAMPLES);
 
   console.log('Seeded demo users:');
   DEMO_USERS.forEach((u) => console.log(`  ${u.email} / ${u.password}`));
   console.log('Seeded company info section placeholders.');
-  console.log('Seeded structured Service Rate / Material Cost examples (if tables were empty).');
+  console.log('Seeded structured rate card examples (if tables were empty).');
+  console.log('Identity left blank -- populate with real CFE content via the Company Info page.');
 
   await pool.end();
 }

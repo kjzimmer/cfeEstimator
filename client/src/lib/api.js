@@ -44,6 +44,23 @@ export const api = {
   updateCompanyInfoSection: (key, content) =>
     request(`/company-info/${key}`, { method: 'PUT', body: { content } }),
 
+  getIdentity: () => request('/company-info/identity'),
+  updateIdentity: (payload) => request('/company-info/identity', { method: 'PUT', body: payload }),
+
+  listRateCardItems: (sectionKey) => request(`/company-info/${sectionKey}/items`),
+  createRateCardItem: (sectionKey, payload) =>
+    request(`/company-info/${sectionKey}/items`, { method: 'POST', body: payload }),
+  updateRateCardItem: (sectionKey, itemId, payload) =>
+    request(`/company-info/${sectionKey}/items/${itemId}`, { method: 'PUT', body: payload }),
+  deleteRateCardItem: (sectionKey, itemId) =>
+    request(`/company-info/${sectionKey}/items/${itemId}`, { method: 'DELETE' }),
+
+  listCustomers: () => request('/customers'),
+  getCustomer: (id) => request(`/customers/${id}`),
+  createCustomer: (payload) => request('/customers', { method: 'POST', body: payload }),
+  updateCustomer: (id, payload) => request(`/customers/${id}`, { method: 'PUT', body: payload }),
+  listCustomerProjects: (id) => request(`/customers/${id}/projects`),
+
   listProjects: (historical) =>
     request(`/projects${historical === undefined ? '' : `?historical=${historical}`}`),
   getProject: (id) => request(`/projects/${id}`),

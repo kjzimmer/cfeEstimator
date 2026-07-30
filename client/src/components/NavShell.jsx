@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 
 const NAV_ITEMS = [
   { to: '/projects', label: 'Projects' },
+  { to: '/customers', label: 'Customers' },
   { to: '/company-info', label: 'Company Info' },
   { to: '/users', label: 'Users', adminOnly: true },
 ];

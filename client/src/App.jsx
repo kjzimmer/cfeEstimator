@@ -7,6 +7,8 @@ import ProjectsListPage from './pages/ProjectsListPage.jsx';
 import ProjectPage from './pages/ProjectPage.jsx';
 import CompanyInfoPage from './pages/CompanyInfoPage.jsx';
 import UsersPage from './pages/UsersPage.jsx';
+import CustomersListPage from './pages/CustomersListPage.jsx';
+import CustomerDetailPage from './pages/CustomerDetailPage.jsx';
 
 export default function App() {
   return (
@@ -23,6 +25,8 @@ export default function App() {
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<ProjectsListPage />} />
           <Route path="/projects/:id" element={<ProjectPage />} />
+          <Route path="/customers" element={<CustomersListPage />} />
+          <Route path="/customers/:id" element={<CustomerDetailPage />} />
           <Route path="/company-info" element={<CompanyInfoPage />} />
           <Route
             path="/users"
