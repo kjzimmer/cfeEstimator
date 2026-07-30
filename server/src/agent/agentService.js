@@ -58,6 +58,7 @@ const TOOLS = [
       properties: {
         scopeText: { type: 'string', description: 'Scope-of-work narrative for the PDF' },
         siteLocation: { type: 'string', description: 'Job site address, if different from the customer address' },
+        requestedStart: { type: 'string', description: 'Freeform requested start, e.g. "Week of August 11, 2026"' },
         contingencyPercent: { type: 'number', description: 'Contingency percentage applied to the subtotal' },
         terms: { type: 'string', description: 'Payment/terms text for the PDF' },
         lineItems: {
@@ -120,6 +121,7 @@ async function buildWorkOrderContext(projectId) {
   return `Status: draft (revision ${draft.revision})
 Scope text: ${draft.scope_text || '(not set)'}
 Site location: ${draft.site_location || '(not set)'}
+Requested start: ${draft.requested_start || '(not set)'}
 Contingency: ${draft.contingency_percent}%
 Line items:
 ${lines}
@@ -232,7 +234,7 @@ export async function runAgentTurn(projectId) {
             content: `Saved component "${componentKey}".`,
           });
         } else if (toolUse.name === 'draft_work_order') {
-          const { scopeText, siteLocation, contingencyPercent, terms, lineItems } = toolUse.input;
+          const { scopeText, siteLocation, requestedStart, contingencyPercent, terms, lineItems } = toolUse.input;
           // No user row for the agent -- created_by/updated_by stay NULL for
           // agent-driven drafts and edits, same nullable-FK pattern used
           // elsewhere for system-attributed rows.
@@ -245,6 +247,7 @@ export async function runAgentTurn(projectId) {
           const hasFieldUpdates =
             scopeText !== undefined ||
             siteLocation !== undefined ||
+            requestedStart !== undefined ||
             contingencyPercent !== undefined ||
             terms !== undefined;
           if (hasFieldUpdates) {
@@ -252,6 +255,7 @@ export async function runAgentTurn(projectId) {
             await workOrderService.updateDraftFields(draft.id, {
               scopeText: scopeText ?? current.scope_text,
               siteLocation: siteLocation ?? current.site_location,
+              requestedStart: requestedStart ?? current.requested_start,
               contingencyPercent: contingencyPercent ?? current.contingency_percent,
               terms: terms ?? current.terms,
             });

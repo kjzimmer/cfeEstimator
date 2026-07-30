@@ -90,14 +90,17 @@ export async function ensureDraft(projectId, userId) {
   return withTotals(rows[0], []);
 }
 
-export async function updateDraftFields(workOrderId, { scopeText, siteLocation, contingencyPercent, terms }) {
+export async function updateDraftFields(
+  workOrderId,
+  { scopeText, siteLocation, requestedStart, contingencyPercent, terms }
+) {
   await assertDraft(workOrderId);
   const { rows } = await pool.query(
     `UPDATE work_orders
-     SET scope_text = $2, site_location = $3, contingency_percent = $4, terms = $5, updated_at = now()
+     SET scope_text = $2, site_location = $3, requested_start = $4, contingency_percent = $5, terms = $6, updated_at = now()
      WHERE id = $1
      RETURNING *`,
-    [workOrderId, scopeText, siteLocation, contingencyPercent, terms]
+    [workOrderId, scopeText, siteLocation, requestedStart, contingencyPercent, terms]
   );
   const lineItems = await getLineItems(workOrderId);
   return withTotals(rows[0], lineItems);
@@ -227,10 +230,19 @@ export async function createRevision(fromWorkOrderId, userId) {
     [src.project_id]
   );
   const { rows } = await pool.query(
-    `INSERT INTO work_orders (project_id, revision, scope_text, site_location, contingency_percent, terms, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO work_orders (project_id, revision, scope_text, site_location, requested_start, contingency_percent, terms, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [src.project_id, revRows[0].next, src.scope_text, src.site_location, src.contingency_percent, src.terms, userId]
+    [
+      src.project_id,
+      revRows[0].next,
+      src.scope_text,
+      src.site_location,
+      src.requested_start,
+      src.contingency_percent,
+      src.terms,
+      userId,
+    ]
   );
   const newWorkOrder = rows[0];
 

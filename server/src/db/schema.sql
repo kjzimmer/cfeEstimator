@@ -189,6 +189,9 @@ CREATE TABLE IF NOT EXISTS work_orders (
   status                TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'finalized')),
   scope_text            TEXT NOT NULL DEFAULT '',
   site_location         TEXT NOT NULL DEFAULT '',
+  -- Freeform (e.g. "Week of August 11, 2026") -- not a real schedule/
+  -- calendar feature, just a line on the PDF. See the PDF header layout.
+  requested_start       TEXT NOT NULL DEFAULT '',
   contingency_percent   NUMERIC(5,2) NOT NULL DEFAULT 0,
   terms                 TEXT NOT NULL DEFAULT '',
   -- Set at finalize time -- the generated PDF, saved as a Project Document
@@ -201,6 +204,9 @@ CREATE TABLE IF NOT EXISTS work_orders (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (project_id, revision)
 );
+
+-- Migration for pre-existing databases.
+ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS requested_start TEXT NOT NULL DEFAULT '';
 
 -- At most one draft per project at a time.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_work_orders_one_draft_per_project

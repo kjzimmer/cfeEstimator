@@ -173,11 +173,12 @@ router.get('/:id/work-orders/:woId', asyncHandler(async (req, res) => {
 }));
 
 router.put('/:id/work-orders/:woId', asyncHandler(async (req, res) => {
-  const { scopeText = '', siteLocation = '', contingencyPercent = 0, terms = '' } = req.body;
+  const { scopeText = '', siteLocation = '', requestedStart = '', contingencyPercent = 0, terms = '' } = req.body;
   try {
     const updated = await workOrderService.updateDraftFields(req.params.woId, {
       scopeText,
       siteLocation,
+      requestedStart,
       contingencyPercent,
       terms,
     });

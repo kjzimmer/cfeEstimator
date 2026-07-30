@@ -19,3 +19,12 @@ Confirmed the generated PDF content directly (not just that a PDF-shaped file ex
 - Manual (non-rate-card) line items have `cost: null` — there's no source of truth to resolve a cost from, so the profit view reports them as "unknown cost" and excludes them from the total rather than guessing.
 - The agent's rate-card catalog context includes `rate` but not `cost` — work-orders.md explicitly allows the agent cost access for internal estimating, but I didn't wire that up this pass to keep the initial surface smaller; flagging as a natural fast-follow if you want the agent to reason about margins in chat.
 - Revision numbers are per-project sequential integers (1, 2, 3…), not dates or free text.
+
+## Addendum: PDF formatting pass
+You shared a cleaner reference layout (two-column header with a WO number, orange section headings, dark table header, two-column customer/site block, tighter signature block) and asked me to match it. Rebuilt `workOrderPdfService.js` around it, plus one new field the reference had that the schema didn't: `requested_start` (freeform, e.g. "Week of August 11, 2026") — added to `work_orders`, wired through the service/route/agent tool/client form the same way the other draft fields are.
+
+Two real layout bugs surfaced only by actually rendering a PDF with realistic dollar amounts (small test values like `$84.00` had hidden them):
+- The amount/rate columns were sized for small numbers and wrapped anything like `$35,200.00` onto a second line, which cascaded into overlapping rows and a broken totals block. Fixed by widening those columns and adding `lineBreak: false` on every numeric cell as a second guardrail.
+- The "Scope of Work" heading inherited its x-position from whichever column (left or right) last wrote text above it, so it sometimes rendered indented under the right column instead of flush left — you caught this one. Fixed by giving section headings an explicit x instead of relying on pdfkit's carried-over cursor position.
+
+Noted your comment that a generalized reporting feature is likely coming — flagged in the code that today's header/footer/branding constants are Work-Order-specific and are the values to lift out first if that gets scoped, but didn't build toward that speculatively this pass.

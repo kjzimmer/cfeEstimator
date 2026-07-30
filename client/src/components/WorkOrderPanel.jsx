@@ -323,6 +323,7 @@ function DraftEditor({ projectId, isAdmin, workOrder, onChange, onFinalized }) {
   const [fields, setFields] = useState({
     scopeText: workOrder.scope_text,
     siteLocation: workOrder.site_location,
+    requestedStart: workOrder.requested_start,
     contingencyPercent: workOrder.contingency_percent,
     terms: workOrder.terms,
   });
@@ -333,6 +334,7 @@ function DraftEditor({ projectId, isAdmin, workOrder, onChange, onFinalized }) {
   const dirty =
     fields.scopeText !== workOrder.scope_text ||
     fields.siteLocation !== workOrder.site_location ||
+    fields.requestedStart !== workOrder.requested_start ||
     Number(fields.contingencyPercent) !== Number(workOrder.contingency_percent) ||
     fields.terms !== workOrder.terms;
 
@@ -374,11 +376,20 @@ function DraftEditor({ projectId, isAdmin, workOrder, onChange, onFinalized }) {
             className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text leading-relaxed resize-y"
           />
         </div>
-        <div>
+        <div className="col-span-2">
           <label className="block text-xs font-medium text-text-secondary mb-1">Site Location</label>
           <input
             value={fields.siteLocation}
             onChange={(e) => setFields((f) => ({ ...f, siteLocation: e.target.value }))}
+            className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">Requested Start</label>
+          <input
+            value={fields.requestedStart}
+            onChange={(e) => setFields((f) => ({ ...f, requestedStart: e.target.value }))}
+            placeholder="e.g. Week of August 11, 2026"
             className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text"
           />
         </div>
