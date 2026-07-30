@@ -4,8 +4,13 @@ import { api } from '../lib/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import ConversationPanel from '../components/ConversationPanel.jsx';
 import DefinitionPanel from '../components/DefinitionPanel.jsx';
+import DocumentsPanel from '../components/DocumentsPanel.jsx';
 
 const PULSE_DURATION_MS = 1700;
+const TABS = [
+  { key: 'definition', label: 'Definition' },
+  { key: 'documents', label: 'Documents' },
+];
 
 export default function ProjectPage() {
   const { id } = useParams();
@@ -14,6 +19,7 @@ export default function ProjectPage() {
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
   const [pulsingKeys, setPulsingKeys] = useState(new Set());
+  const [activeTab, setActiveTab] = useState('definition');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -97,7 +103,31 @@ export default function ProjectPage() {
           onUploadFile={handleUploadFile}
           sending={sending}
         />
-        <DefinitionPanel definition={project.definition} pulsingKeys={pulsingKeys} />
+        <div className="flex flex-col gap-2 min-h-0">
+          <div className="flex items-center gap-1 bg-surface border border-border rounded-md p-0.5 w-fit">
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={[
+                  'px-3 py-1.5 rounded text-sm font-medium transition-colors',
+                  activeTab === tab.key
+                    ? 'bg-accent/10 text-accent'
+                    : 'text-text-secondary hover:text-text',
+                ].join(' ')}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 min-h-0">
+            {activeTab === 'definition' ? (
+              <DefinitionPanel definition={project.definition} pulsingKeys={pulsingKeys} />
+            ) : (
+              <DocumentsPanel projectId={id} />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import { runAgentTurn } from '../agent/agentService.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const FILE_TYPES = ['site-note', 'photo', 'work-order', 'other'];
 const router = Router();
 
 router.get('/', asyncHandler(async (req, res) => {
@@ -80,23 +81,42 @@ router.get('/:id/files', asyncHandler(async (req, res) => {
   res.json(await storage.list(req.params.id));
 }));
 
+// Handles both chat file-attachment and direct Documents-tab upload -- one
+// File model, not two (see docs/requirements/project-documents.md). `source`
+// distinguishes them; only a chat upload also posts a thread message.
+// Direct uploads pass `type` explicitly; chat uploads get a light mime-based
+// guess since that flow stays a single lightweight click, not a form.
 router.post('/:id/files', upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file is required' });
+  if (req.body.type && !FILE_TYPES.includes(req.body.type)) {
+    return res.status(400).json({ error: `type must be one of: ${FILE_TYPES.join(', ')}` });
+  }
+  const source = req.body.source === 'direct' ? 'direct' : 'chat';
+  const type =
+    req.body.type ||
+    (source === 'chat' && req.file.mimetype.startsWith('image/') ? 'photo' : 'other');
+
   const stored = await storage.put({
     projectId: req.params.id,
     filename: req.file.originalname,
     mimeType: req.file.mimetype,
     buffer: req.file.buffer,
     uploadedBy: req.user.sub,
+    type,
+    source,
   });
-  await messageService.appendMessage({
-    projectId: req.params.id,
-    senderType: 'user',
-    userId: req.user.sub,
-    type: 'file',
-    content: req.file.originalname,
-    fileId: stored.id,
-  });
+
+  if (source === 'chat') {
+    await messageService.appendMessage({
+      projectId: req.params.id,
+      senderType: 'user',
+      userId: req.user.sub,
+      type: 'file',
+      content: req.file.originalname,
+      fileId: stored.id,
+    });
+  }
+
   res.status(201).json(stored);
 }));
 

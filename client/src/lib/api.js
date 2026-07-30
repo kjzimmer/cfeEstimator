@@ -89,6 +89,19 @@ export const api = {
       isFormData: true,
     });
   },
+  // Direct Documents-tab upload -- same endpoint as chat attachment, but
+  // tagged source=direct (no chat message posted) with an explicit type.
+  uploadDocument: (projectId, file, type) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('source', 'direct');
+    formData.append('type', type);
+    return request(`/projects/${projectId}/files`, {
+      method: 'POST',
+      body: formData,
+      isFormData: true,
+    });
+  },
   // Files are served behind requireAuth, so <img src> can't hit them
   // directly -- fetch as a blob (with the auth header) and hand back an
   // object URL the caller is responsible for revoking. Content-Type comes

@@ -146,9 +146,21 @@ CREATE TABLE IF NOT EXISTS files (
   -- Stored directly in Postgres this phase; swap to Cloudflare R2 later via
   -- the storage.js abstraction without touching call sites.
   data        BYTEA NOT NULL,
+  -- Small fixed set, not open-ended -- see docs/requirements/project-documents.md.
+  type        TEXT NOT NULL DEFAULT 'other' CHECK (type IN ('site-note', 'photo', 'work-order', 'other')),
+  -- How the file entered the system: attached in chat, uploaded directly via
+  -- the Documents tab, or system-generated (e.g. a future work order PDF).
+  source      TEXT NOT NULL DEFAULT 'chat' CHECK (source IN ('chat', 'direct', 'system')),
   uploaded_by INTEGER REFERENCES users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration for pre-existing databases: the CREATE TABLE above only takes
+-- effect on a fresh install. Existing rows predate both columns and were
+-- all chat uploads (the only path that existed), so 'chat'/'other' as
+-- defaults backfill correctly, not just for new rows.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'other' CHECK (type IN ('site-note', 'photo', 'work-order', 'other'));
+ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'chat' CHECK (source IN ('chat', 'direct', 'system'));
 
 CREATE TABLE IF NOT EXISTS messages (
   id          SERIAL PRIMARY KEY,
