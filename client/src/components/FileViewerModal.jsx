@@ -59,7 +59,19 @@ export default function FileViewerModal({ projectId, fileId, filename, onClose }
           )}
 
           {state.status === 'ready' && state.mimeType === 'application/pdf' && (
-            <iframe src={state.url} title={filename} className="w-full h-full min-h-[70vh]" />
+            <div className="text-center">
+              <p className="text-sm text-text-secondary mb-3">
+                PDFs open in a new tab — mobile browsers can't preview them inline.
+              </p>
+              <a
+                href={state.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-sm font-medium px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white transition-colors"
+              >
+                Open PDF
+              </a>
+            </div>
           )}
 
           {state.status === 'ready' &&
