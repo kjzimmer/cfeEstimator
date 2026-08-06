@@ -89,14 +89,36 @@ export default function FileViewerModal({ projectId, fileId, filename, onClose }
         className="bg-surface rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border gap-3">
           <p className="text-sm font-medium text-text truncate">{filename}</p>
-          <button
-            onClick={onClose}
-            className="text-text-secondary hover:text-text text-sm px-2 py-1 rounded-md hover:bg-black/[0.05] transition-colors"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {isPdf && (
+              <>
+                <a
+                  href={state.url}
+                  download={filename}
+                  className="text-text-secondary hover:text-text text-sm px-2 py-1 rounded-md hover:bg-black/[0.05] transition-colors"
+                >
+                  Download
+                </a>
+                <a
+                  href={state.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Opens the browser's own PDF viewer, which has Print in its toolbar"
+                  className="text-text-secondary hover:text-text text-sm px-2 py-1 rounded-md hover:bg-black/[0.05] transition-colors"
+                >
+                  Open / Print
+                </a>
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="text-text-secondary hover:text-text text-sm px-2 py-1 rounded-md hover:bg-black/[0.05] transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         <div
