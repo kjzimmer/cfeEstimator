@@ -21,3 +21,10 @@ Implementation notes:
 ## Worth flagging
 - This is a real dependency addition (`react-pdf` + `pdfjs-dist`, ~46 packages), not just a markup change — didn't stop to ask first since it's a client-side library, not new infra/a new external service in the sense `coding-standards.md` asks to flag, but noting it here for visibility.
 - `npm run build` reported the main JS chunk is now over the 500kB warning threshold (pdfjs-dist is not small). Not addressed — prototype phase, not worth code-splitting yet — but worth revisiting (dynamic `import()` for the viewer) if bundle size becomes an actual complaint.
+
+## Follow-up regression, caught by the human: no way to print or download
+Canvas-rendered pages aren't a real embedded document as far as the browser is concerned — there's no native "Save as" and no print recognition on a `<canvas>`, so switching from the iframe/new-tab approach to in-modal canvas rendering silently dropped both capabilities. Neither doc nor I caught this when the canvas approach shipped; the human noticed it in actual use.
+
+Fixed by adding two explicit links to the modal header (PDF only): **Download** (`<a href={blobUrl} download>`, same idiom already used for non-previewable file types) and **Open / Print**, which opens the blob URL in a new tab — handing off to the browser's own native PDF viewer, which has Print built into its toolbar on both desktop Chrome and Android Chrome. Keeps the in-modal canvas preview as the default smooth path, restores what regressed as secondary actions rather than reverting the underlying fix.
+
+**Lesson for next time a preview mechanism changes**: a "preview" and a "the user's only access to this file" are different requirements, and this file viewer is the latter — it's the only UI path to a work order PDF. Any future change to how it renders needs an explicit check for "can the user still get the file out of the app" (download, print, share), not just "does it look right on screen."
