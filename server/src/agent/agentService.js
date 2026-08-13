@@ -5,6 +5,7 @@ import * as messageService from '../services/messageService.js';
 import * as storage from '../services/storage.js';
 import * as rateCardService from '../services/rateCardService.js';
 import * as workOrderService from '../services/workOrderService.js';
+import * as memoryService from '../services/memoryService.js';
 
 const RATE_CARD_KEYS = ['service_rates', 'material_costs', 'equipment_rates', 'employee_role_rates'];
 
@@ -83,6 +84,38 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'propose_memory_entry',
+    description:
+      'Log a proposal for something durable to remember, company-wide, after a human EXPLICITLY asks you ' +
+      'to remember something (e.g. "remember: don\'t ask me how far the dump site is" or "remember: CFE ' +
+      'never subs out demo work"). Never call this unprompted -- only on an explicit ask. Classify the ask ' +
+      'into "procedural" (an instruction about how you should behave, not a fact about the world -- test: ' +
+      'would this ever be cited as the reason a specific line-item number is what it is? If no, it\'s ' +
+      'procedural) or "semantic" (a durable generalization about excavation/CFE\'s domain that could be ' +
+      'cited that way). If what they\'re describing is really a standing rate, cost, contingency percentage, ' +
+      'or other Company Info fact that already has a home there, do NOT call this tool -- tell them in your ' +
+      'reply that it belongs in Company Info instead. This only logs a proposal; an admin must accept it ' +
+      'before it affects anything.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['procedural', 'semantic'] },
+        content: {
+          type: 'string',
+          description:
+            'The rule (procedural) or generalization (semantic), in your own words. If the classification ' +
+            'is genuinely ambiguous between procedural and semantic, append a short bracketed note saying so, ' +
+            'e.g. "[uncertain: could be semantic instead]" -- still log it, don\'t guess silently.',
+        },
+        sourceConversationRef: {
+          type: 'string',
+          description: 'Optional short quote or paraphrase of what the human said and in what project, for the reviewer\'s context',
+        },
+      },
+      required: ['type', 'content'],
+    },
+  },
 ];
 
 async function buildFileContext(projectId) {
@@ -128,7 +161,24 @@ ${lines}
 Subtotal: $${draft.subtotal.toFixed(2)}`;
 }
 
-function buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext) {
+// Agent Memory Phase 1 prompt-assembly hook (docs/requirements/agent-memory.md)
+// -- this is what makes the review queue's "accept" button do anything.
+// Company-wide, not project-scoped, so it doesn't take a projectId.
+async function buildMemoryContext() {
+  const [procedural, semantic] = await Promise.all([
+    memoryService.listActiveProcedural(),
+    memoryService.listActiveSemantic(),
+  ]);
+  const proceduralLines = procedural.length
+    ? procedural.map((p) => `- ${p.instruction}`).join('\n')
+    : '(none yet)';
+  const semanticLines = semantic.length
+    ? semantic.map((s) => `- ${s.content}`).join('\n')
+    : '(none yet)';
+  return `### Behavioral rules (procedural)\n${proceduralLines}\n\n### Domain knowledge (semantic)\n${semanticLines}`;
+}
+
+function buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext) {
   const companyContext = companySections
     .map((s) => `### ${s.title}\n${s.content || '(not yet configured)'}`)
     .join('\n\n');
@@ -140,6 +190,11 @@ function buildSystemPrompt(companySections, rateCardContext, project, workOrderC
   return `You are the CFE project agent, participating in a shared conversation with CFE's estimating team about a single excavation job. Your job is to read the conversation, any uploaded files, and company context, then incrementally build up this project's structured definition (SOW, location, materials, assets, labor, billing, site visit notes, etc.) toward something bid-ready -- and to draft a work order (priced line items) once you have enough information, using the rate card catalog below.
 
 Use the update_project_component tool proactively whenever you learn something concrete -- don't wait to be asked. Use draft_work_order once scope and quantities are clear enough to price, and again whenever they change -- a human still has to review and click "Generate Work Order" before anything goes to the customer, so draft early and revise freely rather than waiting for certainty. Keep your chat replies conversational and short; put structured detail into components and the draft work order, not into the chat reply.
+
+If a human explicitly asks you to remember something (they say "remember..." or clearly ask you to retain a rule or fact for the future), use propose_memory_entry per its own instructions -- this only logs a proposal for admin review, it doesn't take effect immediately, so tell them that's what happened. Never call it unless they explicitly asked you to remember something; don't proactively propose memories from an ordinary correction.
+
+## Things you already know (Agent Memory -- admin-reviewed, applies company-wide)
+${memoryContext}
 
 ## Company context
 ${companyContext}
@@ -183,17 +238,18 @@ function toAnthropicMessages(messages) {
   return merged;
 }
 
-export async function runAgentTurn(projectId) {
-  const [companySections, project, threadMessages, rateCardContext, workOrderContext] = await Promise.all([
+export async function runAgentTurn(projectId, triggeredByUserId = null) {
+  const [companySections, project, threadMessages, rateCardContext, workOrderContext, memoryContext] = await Promise.all([
     listSections(),
     projectService.getProject(projectId),
     messageService.listMessages(projectId),
     buildRateCardContext(),
     buildWorkOrderContext(projectId),
+    buildMemoryContext(),
   ]);
 
   const fileContext = await buildFileContext(projectId);
-  const system = buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext);
+  const system = buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext);
   const messages = toAnthropicMessages(threadMessages);
 
   let finalText = '';
@@ -265,6 +321,19 @@ export async function runAgentTurn(projectId) {
             type: 'tool_result',
             tool_use_id: toolUse.id,
             content: 'Draft work order updated.',
+          });
+        } else if (toolUse.name === 'propose_memory_entry') {
+          const { type, content, sourceConversationRef } = toolUse.input;
+          const { entry } = await memoryService.proposeEntry({
+            type,
+            content,
+            proposedBy: triggeredByUserId,
+            sourceConversationRef,
+          });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: `Logged as a ${type} memory proposal (id ${entry.id}), pending admin review.`,
           });
         }
       } catch (err) {

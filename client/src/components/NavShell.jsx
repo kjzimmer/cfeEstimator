@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { to: '/projects', label: 'Projects' },
   { to: '/customers', label: 'Customers' },
   { to: '/company-info', label: 'Company Info' },
+  { to: '/memory', label: 'Memory', adminOnly: true },
   { to: '/users', label: 'Users', adminOnly: true },
 ];
 

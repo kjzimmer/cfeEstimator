@@ -7,6 +7,7 @@ import ProjectsListPage from './pages/ProjectsListPage.jsx';
 import ProjectPage from './pages/ProjectPage.jsx';
 import CompanyInfoPage from './pages/CompanyInfoPage.jsx';
 import UsersPage from './pages/UsersPage.jsx';
+import MemoryReviewPage from './pages/MemoryReviewPage.jsx';
 import CustomersListPage from './pages/CustomersListPage.jsx';
 import CustomerDetailPage from './pages/CustomerDetailPage.jsx';
 
@@ -33,6 +34,14 @@ export default function App() {
             element={
               <ProtectedRoute adminOnly>
                 <UsersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/memory"
+            element={
+              <ProtectedRoute adminOnly>
+                <MemoryReviewPage />
               </ProtectedRoute>
             }
           />

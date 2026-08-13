@@ -86,7 +86,7 @@ router.post('/:id/messages', asyncHandler(async (req, res) => {
     content,
   });
 
-  const { agentMessage, project } = await runAgentTurn(projectId);
+  const { agentMessage, project } = await runAgentTurn(projectId, req.user.sub);
 
   res.status(201).json({ userMessage, agentMessage, project });
 }));

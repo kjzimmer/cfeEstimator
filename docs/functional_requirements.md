@@ -1,3 +1,4 @@
+
 # Top-Level Requirements
 
 These are the stable, top-level features. They don't change often — phase-by-phase build detail lives in `requirements/` instead.
@@ -38,6 +39,12 @@ These are the stable, top-level features. They don't change often — phase-by-p
 - Generate a PDF work order from a well-defined project's data, for sending to the customer
 - Any project participant can generate one — not admin-gated
 - Cost/profit figures never appear in the generated document, regardless of who/what generated it
+
+## 8. Agent Memory
+- The agent accumulates two distinct kinds of durable knowledge beyond a single project's own data: **procedural** (how it should behave — e.g. derive a fact instead of asking for it) and **semantic** (generalized domain knowledge that holds across projects — e.g. typical equipment needs for a site condition)
+- A human can explicitly tell the agent to remember something; the agent classifies it and logs a proposal for admin review — nothing takes effect until reviewed and accepted
+- Accepted entries feed directly into the agent's context on every turn, company-wide — not hand-edited into a prompt
+- See `requirements/agent-memory.md` for the full phased build (direct capture, rationale-driven formation, review/confirmation roles)
 
 ## Near-term, not-yet-scheduled needs
 These are known to be coming soon but are not committed to a specific phase yet:

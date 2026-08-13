@@ -236,3 +236,48 @@ CREATE TABLE IF NOT EXISTS work_order_line_items (
 
 CREATE INDEX IF NOT EXISTS idx_work_orders_project_id ON work_orders(project_id);
 CREATE INDEX IF NOT EXISTS idx_work_order_line_items_work_order_id ON work_order_line_items(work_order_id);
+
+-- Agent Memory, Phase 1 (docs/requirements/agent-memory.md). Company-wide,
+-- not per-project -- deliberately no project_id here. Two tables because
+-- procedural ("how to behave") and semantic ("what's true about the domain")
+-- have different lifecycles; see the doc's "Principle" section for why they
+-- aren't conflated into one.
+CREATE TABLE IF NOT EXISTS procedural_memory (
+  id           SERIAL PRIMARY KEY,
+  instruction  TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'active', 'retired')),
+  -- agent_proposed is a valid value but nothing writes it this phase --
+  -- proactive capture is explicitly out of scope for Phase 1.
+  source       TEXT NOT NULL CHECK (source IN ('human_seeded', 'human_asserted', 'agent_proposed')),
+  proposed_by  INTEGER REFERENCES users(id),
+  reviewed_by  INTEGER REFERENCES users(id),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_at  TIMESTAMPTZ
+);
+
+-- 'proposed' and 'hypothesis' both exist on the status CHECK even though
+-- Phase 1 only ever produces 'proposed' (via the intake tool) and promotes
+-- straight to 'confirmed' on accept, skipping 'hypothesis' entirely (see the
+-- doc's "Flagged decision" note). 'hypothesis' is reserved for Phase 2's
+-- rationale-driven agent_inferred path, which writes directly into this same
+-- table without going through the Phase 1 proposal queue -- kept valid now
+-- so Phase 2 doesn't need a migration to add it.
+CREATE TABLE IF NOT EXISTS semantic_memory (
+  id            SERIAL PRIMARY KEY,
+  content       TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'hypothesis', 'confirmed', 'retired')),
+  -- Distinct from Phase 3's import-provenance `origin` (imported/native) on a
+  -- different table -- same field name, unrelated meaning. See the doc.
+  origin        TEXT NOT NULL CHECK (origin IN ('human_asserted', 'agent_inferred')),
+  source_refs   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  evidence      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  proposed_by   INTEGER REFERENCES users(id),
+  reviewed_by   INTEGER REFERENCES users(id),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_at   TIMESTAMPTZ,
+  confirmed_at  TIMESTAMPTZ,
+  confirmed_via TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_procedural_memory_status ON procedural_memory(status);
+CREATE INDEX IF NOT EXISTS idx_semantic_memory_status ON semantic_memory(status);

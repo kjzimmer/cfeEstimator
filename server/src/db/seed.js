@@ -61,6 +61,31 @@ const EMPLOYEE_ROLE_RATE_EXAMPLES = [
   { name: 'Project Manager', unit: 'hr', rate: 140, cost: 90 },
 ];
 
+// Initial procedural checklist (docs/requirements/agent-memory.md, Phase 1
+// "Seed data") -- the doc says Karl/CFE should author these directly; this
+// starter set is Claude-authored from the doc's own examples (distance to
+// site, accessibility, special material handling) plus two more in the same
+// spirit, meant to be reviewed/edited via the Memory review queue's data,
+// not treated as CFE's actual domain expertise. Flagged in feedback.
+const PROCEDURAL_CHECKLIST_SEED = [
+  "Don't ask for distance from CFE to the project site if it can be derived from the project location and company location -- derive it instead.",
+  'Confirm site accessibility (road access, gate/lock codes, overhead or underground utility clearance) before finalizing equipment selections -- ask if not already stated in the conversation or site visit notes.',
+  'Flag any material requiring special handling or disposal (contaminated soil, asbestos-containing material, hazardous waste) as soon as it is mentioned, and note it explicitly in the SOW component rather than folding it into a generic line item.',
+  'Before drafting a work order, confirm the project has a customer on file -- a work order without a linked customer is missing the customer/site block the PDF needs.',
+  "When a quantity is estimated rather than measured, say so explicitly in the component content (e.g. 'approx.') rather than presenting a guess as a firm number.",
+];
+
+async function seedProceduralChecklist() {
+  const { rows: existing } = await pool.query(`SELECT 1 FROM procedural_memory LIMIT 1`);
+  if (existing.length > 0) return;
+  for (const instruction of PROCEDURAL_CHECKLIST_SEED) {
+    await pool.query(
+      `INSERT INTO procedural_memory (instruction, status, source) VALUES ($1, 'active', 'human_seeded')`,
+      [instruction]
+    );
+  }
+}
+
 async function seedRateCardExamples(table, rows) {
   const { rows: existing } = await pool.query(`SELECT 1 FROM ${table} LIMIT 1`);
   if (existing.length > 0) return;
@@ -96,6 +121,7 @@ async function seed() {
   await seedRateCardExamples('material_cost_items', MATERIAL_COST_EXAMPLES);
   await seedRateCardExamples('equipment_rate_items', EQUIPMENT_RATE_EXAMPLES);
   await seedRateCardExamples('employee_role_rate_items', EMPLOYEE_ROLE_RATE_EXAMPLES);
+  await seedProceduralChecklist();
 
   console.log('Seeded demo users:');
   DEMO_USERS.forEach((u) => console.log(`  ${u.email} / ${u.password}`));

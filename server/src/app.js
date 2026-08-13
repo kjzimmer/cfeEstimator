@@ -7,6 +7,7 @@ import companyInfoRoutes from './routes/companyInfoRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import customerRoutes from './routes/customerRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import memoryRoutes from './routes/memoryRoutes.js';
 import { requireAuth, requireAdmin } from './middleware/requireAuth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +25,7 @@ export function createApp() {
   app.use('/api/projects', requireAuth, projectRoutes);
   app.use('/api/customers', requireAuth, customerRoutes);
   app.use('/api/users', requireAuth, requireAdmin, userRoutes);
+  app.use('/api/memory', requireAuth, requireAdmin, memoryRoutes);
 
   // In production, Express serves the built React app alongside the API.
   if (process.env.NODE_ENV === 'production') {
