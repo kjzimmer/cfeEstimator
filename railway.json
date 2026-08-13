@@ -5,7 +5,7 @@
     "buildCommand": "npm install --prefix server && npm install --prefix client && npm run build --prefix client"
   },
   "deploy": {
-    "startCommand": "npm start --prefix server",
+    "startCommand": "npm run db:migrate --prefix server && npm start --prefix server",
     "healthcheckPath": "/api/health"
   }
 }

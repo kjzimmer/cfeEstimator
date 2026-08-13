@@ -99,6 +99,7 @@ export const api = {
   updateUser: (id, payload) => request(`/users/${id}`, { method: 'PUT', body: payload }),
 
   listMemoryProposals: () => request('/memory/proposals'),
+  listActiveMemory: () => request('/memory/active'),
   reviewMemoryEntry: (type, id, decision) =>
     request(`/memory/${type}/${id}/review`, { method: 'POST', body: { decision } }),
 

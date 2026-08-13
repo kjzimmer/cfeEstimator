@@ -11,6 +11,21 @@ router.get('/proposals', asyncHandler(async (req, res) => {
   res.json(await memoryService.listProposals());
 }));
 
+// Read-only view of what's actually active/confirmed -- the queue above only
+// ever shows status:proposed, so without this there's no way to see what the
+// agent already knows (human_seeded entries in particular never pass through
+// the queue at all -- see docs/requirements/agent-memory.md's seed-data note).
+router.get('/active', asyncHandler(async (req, res) => {
+  const [procedural, semantic] = await Promise.all([
+    memoryService.listActiveProcedural(),
+    memoryService.listActiveSemantic(),
+  ]);
+  res.json({
+    procedural: procedural.map((p) => ({ type: 'procedural', ...p })),
+    semantic: semantic.map((s) => ({ type: 'semantic', ...s })),
+  });
+}));
+
 router.post('/:type/:id/review', asyncHandler(async (req, res) => {
   const { type, id } = req.params;
   const { decision } = req.body;

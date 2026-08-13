@@ -3,6 +3,19 @@ import { api } from '../lib/api.js';
 
 const TYPE_LABELS = { procedural: 'Procedural', semantic: 'Semantic' };
 
+function TypeBadge({ type }) {
+  return (
+    <span
+      className={[
+        'inline-block text-xs font-medium px-2 py-0.5 rounded-md mb-1.5',
+        type === 'procedural' ? 'bg-accent/10 text-accent' : 'bg-black/[0.05] text-text-secondary',
+      ].join(' ')}
+    >
+      {TYPE_LABELS[type]}
+    </span>
+  );
+}
+
 function ProposalRow({ proposal, onReviewed }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -25,19 +38,10 @@ function ProposalRow({ proposal, onReviewed }) {
     <div className="px-4 py-3 border-b border-border last:border-b-0">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <span
-            className={[
-              'inline-block text-xs font-medium px-2 py-0.5 rounded-md mb-1.5',
-              proposal.type === 'procedural' ? 'bg-accent/10 text-accent' : 'bg-black/[0.05] text-text-secondary',
-            ].join(' ')}
-          >
-            {TYPE_LABELS[proposal.type]}
-          </span>
+          <TypeBadge type={proposal.type} />
           <p className="text-sm text-text whitespace-pre-wrap">{text}</p>
           {sourceRefs?.length > 0 && (
-            <p className="text-xs text-text-secondary mt-1">
-              Source: {sourceRefs.join('; ')}
-            </p>
+            <p className="text-xs text-text-secondary mt-1">Source: {sourceRefs.join('; ')}</p>
           )}
           <p className="text-xs text-text-secondary mt-1">
             Proposed {new Date(proposal.created_at).toLocaleString()}
@@ -65,16 +69,40 @@ function ProposalRow({ proposal, onReviewed }) {
   );
 }
 
+const SOURCE_LABELS = { human_seeded: 'seeded', human_asserted: 'human-asserted', agent_inferred: 'agent-inferred' };
+
+function ActiveRow({ entry }) {
+  const text = entry.type === 'procedural' ? entry.instruction : entry.content;
+  const sourceOrOrigin = entry.type === 'procedural' ? entry.source : entry.origin;
+  const sourceRefs = entry.type === 'semantic' ? entry.source_refs : null;
+
+  return (
+    <div className="px-4 py-3 border-b border-border last:border-b-0">
+      <TypeBadge type={entry.type} />
+      <p className="text-sm text-text whitespace-pre-wrap">{text}</p>
+      {sourceRefs?.length > 0 && (
+        <p className="text-xs text-text-secondary mt-1">Source: {sourceRefs.join('; ')}</p>
+      )}
+      <p className="text-xs text-text-secondary mt-1">
+        {SOURCE_LABELS[sourceOrOrigin] || sourceOrOrigin}
+        {entry.type === 'semantic' ? ` · ${entry.status}` : ''}
+      </p>
+    </div>
+  );
+}
+
 export default function MemoryReviewPage() {
   const [proposals, setProposals] = useState(null);
+  const [active, setActive] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .listMemoryProposals()
-      .then((data) => {
-        if (!cancelled) setProposals(data);
+    Promise.all([api.listMemoryProposals(), api.listActiveMemory()])
+      .then(([p, a]) => {
+        if (cancelled) return;
+        setProposals(p);
+        setActive(a);
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
@@ -86,31 +114,53 @@ export default function MemoryReviewPage() {
 
   function handleReviewed(proposal) {
     setProposals((prev) => prev.filter((p) => !(p.type === proposal.type && p.id === proposal.id)));
+    setActive((prev) => {
+      if (!prev) return prev;
+      const key = proposal.type === 'procedural' ? 'procedural' : 'semantic';
+      return { ...prev, [key]: [...prev[key], { ...proposal, status: proposal.type === 'procedural' ? 'active' : 'confirmed' }] };
+    });
   }
 
+  const activeEntries = active ? [...active.procedural, ...active.semantic] : null;
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-lg font-semibold text-text">Agent Memory — Review Queue</h1>
+        <h1 className="text-lg font-semibold text-text">Agent Memory</h1>
         <p className="text-xs text-text-secondary">
-          Proposals the agent logged when someone explicitly asked it to remember something. Nothing here
-          affects the agent until accepted.
+          What the agent has been told to remember, company-wide — pending proposals and what's already active.
         </p>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {proposals && proposals.length === 0 && (
-        <p className="text-sm text-text-secondary py-8 text-center">Nothing pending review.</p>
-      )}
+      <div>
+        <h2 className="text-sm font-semibold text-text mb-2">Pending review</h2>
+        {proposals && proposals.length === 0 && (
+          <p className="text-sm text-text-secondary py-4">Nothing pending review.</p>
+        )}
+        {proposals && proposals.length > 0 && (
+          <div className="bg-surface border border-border rounded-lg divide-y divide-border">
+            {proposals.map((p) => (
+              <ProposalRow key={`${p.type}-${p.id}`} proposal={p} onReviewed={handleReviewed} />
+            ))}
+          </div>
+        )}
+      </div>
 
-      {proposals && proposals.length > 0 && (
-        <div className="bg-surface border border-border rounded-lg divide-y divide-border">
-          {proposals.map((p) => (
-            <ProposalRow key={`${p.type}-${p.id}`} proposal={p} onReviewed={handleReviewed} />
-          ))}
-        </div>
-      )}
+      <div>
+        <h2 className="text-sm font-semibold text-text mb-2">Active — what the agent currently knows</h2>
+        {activeEntries && activeEntries.length === 0 && (
+          <p className="text-sm text-text-secondary py-4">Nothing active yet.</p>
+        )}
+        {activeEntries && activeEntries.length > 0 && (
+          <div className="bg-surface border border-border rounded-lg divide-y divide-border">
+            {activeEntries.map((e) => (
+              <ActiveRow key={`${e.type}-${e.id}`} entry={e} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
