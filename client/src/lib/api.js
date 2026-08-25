@@ -100,6 +100,7 @@ export const api = {
 
   listMemoryProposals: () => request('/memory/proposals'),
   listActiveMemory: () => request('/memory/active'),
+  listRetiredMemory: () => request('/memory/retired'),
   reviewMemoryEntry: (type, id, decision) =>
     request(`/memory/${type}/${id}/review`, { method: 'POST', body: { decision } }),
 

@@ -89,14 +89,19 @@ const TOOLS = [
     description:
       'Log a proposal for something durable to remember, company-wide, after a human EXPLICITLY asks you ' +
       'to remember something (e.g. "remember: don\'t ask me how far the dump site is" or "remember: CFE ' +
-      'never subs out demo work"). Never call this unprompted -- only on an explicit ask. Classify the ask ' +
-      'into "procedural" (an instruction about how you should behave, not a fact about the world -- test: ' +
-      'would this ever be cited as the reason a specific line-item number is what it is? If no, it\'s ' +
-      'procedural) or "semantic" (a durable generalization about excavation/CFE\'s domain that could be ' +
-      'cited that way). If what they\'re describing is really a standing rate, cost, contingency percentage, ' +
-      'or other Company Info fact that already has a home there, do NOT call this tool -- tell them in your ' +
-      'reply that it belongs in Company Info instead. This only logs a proposal; an admin must accept it ' +
-      'before it affects anything.',
+      'never subs out demo work"). Never call this unprompted -- only on an explicit ask.\n\n' +
+      'FIRST, before classifying procedural vs semantic, check whether any part of the statement contains a ' +
+      'specific rate, price, cost, or percentage that would need to be applied consistently in future ' +
+      'estimates. If so, that makes the WHOLE statement Company-Info-shaped -- do NOT call this tool at all, ' +
+      'even if the rate is mixed in with other domain context. E.g. "we\'re certified for asbestos removal ' +
+      'and charge a flat $3,000 for it" mixes a capability claim with a rate; the rate makes the whole thing ' +
+      'belong in Company Info, not semantic memory just because a capability claim is attached to it. Tell ' +
+      'the human the pricing part needs to be added to Company Info instead.\n\n' +
+      'Only once you\'ve ruled out a rate/price being present, classify what\'s left into "procedural" (an ' +
+      'instruction about how you should behave, not a fact about the world -- test: would this ever be ' +
+      'cited as the reason a specific line-item number is what it is? If no, it\'s procedural) or "semantic" ' +
+      '(a durable generalization about excavation/CFE\'s domain that could be cited that way, with no price ' +
+      'attached to it). This only logs a proposal; an admin must accept it before it affects anything.',
     input_schema: {
       type: 'object',
       properties: {

@@ -64,6 +64,20 @@ export async function listProposals() {
   ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 }
 
+// Retired-history view -- rejected entries were previously only visible via
+// a direct DB query, with no way to tell what was rejected or why from the
+// app itself. Same combined flat-list shape as listProposals().
+export async function listRetired() {
+  const [{ rows: procedural }, { rows: semantic }] = await Promise.all([
+    pool.query(`SELECT * FROM procedural_memory WHERE status = 'retired' ORDER BY reviewed_at DESC`),
+    pool.query(`SELECT * FROM semantic_memory WHERE status = 'retired' ORDER BY reviewed_at DESC`),
+  ]);
+  return [
+    ...procedural.map((r) => ({ type: 'procedural', ...r })),
+    ...semantic.map((r) => ({ type: 'semantic', ...r })),
+  ].sort((a, b) => new Date(b.reviewed_at) - new Date(a.reviewed_at));
+}
+
 export async function reviewProcedural(id, decision, reviewedBy) {
   const status = decision === 'accept' ? 'active' : 'retired';
   const { rows } = await pool.query(

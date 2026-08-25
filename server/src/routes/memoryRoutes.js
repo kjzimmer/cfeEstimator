@@ -26,6 +26,13 @@ router.get('/active', asyncHandler(async (req, res) => {
   });
 }));
 
+// Rejected entries were previously invisible in the app once reviewed --
+// only reachable via a direct DB query. See docs/feedback/ for the Phase 1
+// follow-up this closes.
+router.get('/retired', asyncHandler(async (req, res) => {
+  res.json(await memoryService.listRetired());
+}));
+
 router.post('/:type/:id/review', asyncHandler(async (req, res) => {
   const { type, id } = req.params;
   const { decision } = req.body;

@@ -91,6 +91,57 @@ function ActiveRow({ entry }) {
   );
 }
 
+function RetiredRow({ entry }) {
+  const text = entry.type === 'procedural' ? entry.instruction : entry.content;
+
+  return (
+    <div className="px-4 py-3 border-b border-border last:border-b-0 opacity-70">
+      <TypeBadge type={entry.type} />
+      <p className="text-sm text-text whitespace-pre-wrap">{text}</p>
+      <p className="text-xs text-text-secondary mt-1">
+        Rejected {entry.reviewed_at ? new Date(entry.reviewed_at).toLocaleString() : 'at unknown time'}
+      </p>
+    </div>
+  );
+}
+
+function RetiredSection() {
+  const [entries, setEntries] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState('');
+
+  async function toggle() {
+    if (open) return setOpen(false);
+    if (!entries) {
+      try {
+        setEntries(await api.listRetiredMemory());
+      } catch (err) {
+        setError(err.message);
+      }
+    }
+    setOpen(true);
+  }
+
+  return (
+    <div>
+      <button onClick={toggle} className="text-sm font-medium text-accent hover:underline">
+        {open ? 'Hide' : 'Show'} retired (rejected) entries
+      </button>
+      {open && error && <p className="text-sm text-red-600 mt-1">{error}</p>}
+      {open && entries && entries.length === 0 && (
+        <p className="text-sm text-text-secondary py-4">Nothing's been rejected yet.</p>
+      )}
+      {open && entries && entries.length > 0 && (
+        <div className="mt-2 bg-surface border border-border rounded-lg divide-y divide-border">
+          {entries.map((e) => (
+            <RetiredRow key={`${e.type}-${e.id}`} entry={e} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MemoryReviewPage() {
   const [proposals, setProposals] = useState(null);
   const [active, setActive] = useState(null);
@@ -160,6 +211,10 @@ export default function MemoryReviewPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="pt-2 border-t border-border">
+        <RetiredSection />
       </div>
     </div>
   );
