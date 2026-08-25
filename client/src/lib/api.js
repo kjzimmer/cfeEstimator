@@ -54,6 +54,7 @@ export const api = {
     request(`/company-info/${sectionKey}/items/${itemId}`, { method: 'PUT', body: payload }),
   deleteRateCardItem: (sectionKey, itemId) =>
     request(`/company-info/${sectionKey}/items/${itemId}`, { method: 'DELETE' }),
+  syncQuickbooksRates: () => request('/company-info/sync-quickbooks', { method: 'POST' }),
 
   listCustomers: () => request('/customers'),
   getCustomer: (id) => request(`/customers/${id}`),

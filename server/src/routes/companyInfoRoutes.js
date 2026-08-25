@@ -23,6 +23,13 @@ router.put('/identity', requireAdmin, asyncHandler(async (req, res) => {
   res.json(identity);
 }));
 
+// Simulated QuickBooks sync (see quickbooksService.js) -- registered before
+// the generic /:sectionKey routes for the same reason /identity is.
+router.post('/sync-quickbooks', requireAdmin, asyncHandler(async (req, res) => {
+  const result = await rateCardService.syncFromQuickBooks();
+  res.json({ createdCount: result.created.length, updatedCount: result.updated.length, ...result });
+}));
+
 // cost is admin-only wherever rate cards appear (docs/requirements/company-info.md)
 // -- stripped here at the API boundary, not left to callers to remember.
 function omitCostForNonAdmins(items, req) {

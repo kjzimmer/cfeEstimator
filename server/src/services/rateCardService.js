@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import * as quickbooksService from './quickbooksService.js';
 
 // Two structured rate-card tables share this identical shape -- see
 // docs/requirements/company-info.md. cardKey is always one of the fixed
@@ -65,4 +66,40 @@ export async function updateItem(cardKey, itemId, { name, unit = '', rate = 0, c
 export async function deleteItem(cardKey, itemId) {
   const { rowCount } = await pool.query(`DELETE FROM ${tableFor(cardKey)} WHERE id = $1`, [itemId]);
   return rowCount > 0;
+}
+
+// Pulls rate items from QuickBooks (simulated -- see quickbooksService.js)
+// and upserts them into the matching rate-card table by case-insensitive
+// name, same matching rule the agent already uses via findItemByName().
+// Never deletes -- an item missing from a QB fetch just isn't touched,
+// consistent with the rate-authority model treating rate cards as
+// additive/corrective, not a destructive mirror of an external system.
+export async function syncFromQuickBooks() {
+  const items = await quickbooksService.fetchRateItems();
+  const created = [];
+  const updated = [];
+
+  for (const item of items) {
+    if (!isRateCardKey(item.category)) continue;
+    const existing = await findItemByName(item.category, item.name);
+    if (existing) {
+      const row = await updateItem(item.category, existing.id, {
+        name: item.name,
+        unit: item.unit,
+        rate: item.rate,
+        cost: item.cost,
+      });
+      updated.push({ category: item.category, ...row });
+    } else {
+      const row = await createItem(item.category, {
+        name: item.name,
+        unit: item.unit,
+        rate: item.rate,
+        cost: item.cost,
+      });
+      created.push({ category: item.category, ...row });
+    }
+  }
+
+  return { created, updated };
 }

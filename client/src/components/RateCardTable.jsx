@@ -230,9 +230,54 @@ function ItemRow({ item, sectionKey, isAdmin, onUpdated, onDeleted }) {
   );
 }
 
+function QuickbooksSyncButton({ isAdmin, onSynced }) {
+  const [syncing, setSyncing] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  if (!isAdmin) return null;
+
+  async function handleSync() {
+    setSyncing(true);
+    setError('');
+    setResult(null);
+    try {
+      const summary = await api.syncQuickbooksRates();
+      setResult(summary);
+      onSynced();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <button
+        onClick={handleSync}
+        disabled={syncing}
+        className="text-sm font-medium px-3 py-1.5 rounded-md border border-border text-text-secondary hover:text-text hover:bg-black/[0.03] transition-colors disabled:opacity-60"
+      >
+        {syncing ? 'Syncing…' : 'Sync from QuickBooks (simulated)'}
+      </button>
+      {result && (
+        <span className="text-xs text-text-secondary">
+          {result.createdCount} added, {result.updatedCount} updated (across all rate cards)
+        </span>
+      )}
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </div>
+  );
+}
+
 export default function RateCardTable({ sectionKey, isAdmin }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
+
+  function load() {
+    return api.listRateCardItems(sectionKey).then(setItems);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -256,6 +301,7 @@ export default function RateCardTable({ sectionKey, isAdmin }) {
 
   return (
     <div className="flex flex-col gap-3">
+      <QuickbooksSyncButton isAdmin={isAdmin} onSynced={load} />
       {items.length === 0 ? (
         <p className="text-sm text-text-secondary py-4">
           Not yet configured — coming soon.{isAdmin && ' Add the first row below.'}
