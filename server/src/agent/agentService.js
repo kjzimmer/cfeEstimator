@@ -50,10 +50,13 @@ const TOOLS = [
       'so there\'s no harm in proposing a list early and refining it as the conversation ' +
       'clarifies scope. Omit fields you don\'t want to change. When you do pass lineItems, ' +
       'it fully REPLACES the current list -- include every line that should remain, not just new ones. ' +
-      'For each line, prefer referencing a real rate card entry by rateCardType + rateCardItemName ' +
-      '(name must match one from the catalog in your system context exactly) so the price is resolved ' +
-      'from the actual rate card rather than guessed -- only fall back to a manual name/rate when nothing ' +
-      'in the catalog fits.',
+      'Rates only ever come from a rate card -- there is no field for you to supply a rate directly, for ' +
+      'any line, ever. For each line, try to reference a real rate card entry by rateCardType + ' +
+      'rateCardItemName (name must match one from the catalog in your system context EXACTLY -- never a ' +
+      'similar-but-different item you judge as "close enough," that defeats the point). If nothing in the ' +
+      'catalog matches, still add the line with just name/unit/qty (no rateCardType) -- it\'ll be scope-only ' +
+      'and unresolved, which is expected and fine while drafting. Mention in your reply that it has no rate ' +
+      'yet and needs a rate card entry added before the work order can be finalized -- never invent a number.',
     input_schema: {
       type: 'object',
       properties: {
@@ -74,10 +77,9 @@ const TOOLS = [
                 description: 'Omit for a manual line with no backing rate card entry',
               },
               rateCardItemName: { type: 'string', description: 'Exact name of the catalog entry, when rateCardType is set' },
-              name: { type: 'string', description: 'Line description -- required for a manual line' },
+              name: { type: 'string', description: 'Line description -- required when rateCardType is omitted' },
               unit: { type: 'string' },
               qty: { type: 'number' },
-              rate: { type: 'number', description: 'Only used for a manual line; ignored when rateCardType is set (resolved from the rate card instead)' },
             },
           },
         },

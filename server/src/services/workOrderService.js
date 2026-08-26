@@ -108,10 +108,16 @@ export async function updateDraftFields(
 
 // Resolves rate/cost server-side from the live rate card when rateCardType +
 // rateCardItemId/rateCardItemName are given -- never trusts a client-supplied
-// rate/cost for a rate-card-backed line. A manual line (no rateCardType) has
-// no cost. Name lookup exists for the agent, which works from conversation
-// text, not internal ids; the UI form uses id (it has the dropdown's list).
-async function resolveLine({ rateCardType, rateCardItemId, rateCardItemName, name, unit, qty, rate }) {
+// rate/cost for a rate-card-backed line. Name lookup exists for the agent,
+// which works from conversation text, not internal ids; the UI form uses id
+// (it has the dropdown's list).
+//
+// A line with no rateCardType is unresolved: rate/cost are always null,
+// regardless of what a caller passes -- there is no freehand rate entry
+// path anywhere, by anyone, admin or not, agent or human. See
+// docs/feedback/2026-08-13-rate-card-authority-gap.md. Scoping without a
+// resolved rate is expected and fine; only finalize enforces resolution.
+async function resolveLine({ rateCardType, rateCardItemId, rateCardItemName, name, unit, qty }) {
   if (rateCardType && (rateCardItemId || rateCardItemName)) {
     const item = rateCardItemId
       ? await rateCardService.getItem(rateCardType, rateCardItemId)
@@ -126,7 +132,7 @@ async function resolveLine({ rateCardType, rateCardItemId, rateCardItemName, nam
       qty: qty ?? 1,
     };
   }
-  return { rateCardType: null, name, unit: unit || '', rate: rate ?? 0, cost: null, qty: qty ?? 1 };
+  return { rateCardType: null, name, unit: unit || '', rate: null, cost: null, qty: qty ?? 1 };
 }
 
 export async function addLineItem(workOrderId, payload) {
@@ -141,14 +147,19 @@ export async function addLineItem(workOrderId, payload) {
   return rows[0];
 }
 
-export async function updateLineItem(workOrderId, itemId, { name, unit, qty, rate }) {
+// Shares resolveLine() with addLineItem so editing a line goes through the
+// exact same rate-authority resolution -- re-passing a resolved line's own
+// rateCardType/name re-resolves against the live rate card (picking up any
+// rate change since it was added) rather than freezing the rate at add-time.
+export async function updateLineItem(workOrderId, itemId, payload) {
   await assertDraft(workOrderId);
+  const line = await resolveLine(payload);
   const { rows } = await pool.query(
     `UPDATE work_order_line_items
-     SET name = $3, unit = $4, qty = $5, rate = $6, updated_at = now()
+     SET rate_card_type = $3, name = $4, unit = $5, qty = $6, rate = $7, cost = $8, updated_at = now()
      WHERE id = $1 AND work_order_id = $2
      RETURNING *`,
-    [itemId, workOrderId, name, unit || '', qty, rate]
+    [itemId, workOrderId, line.rateCardType, line.name, line.unit, line.qty, line.rate, line.cost]
   );
   return rows[0] || null;
 }

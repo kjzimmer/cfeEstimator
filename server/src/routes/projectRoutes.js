@@ -188,8 +188,13 @@ router.put('/:id/work-orders/:woId', asyncHandler(async (req, res) => {
   }
 }));
 
+// No `rate` field accepted here at all -- rates only ever come from a rate
+// card (docs/feedback/2026-08-13-rate-card-authority-gap.md). A line
+// without a rateCardType is scope-only and stays unresolved; there is no
+// path for a client to supply a rate directly, for a manual line or
+// otherwise.
 function validateLinePayload(body) {
-  const { rateCardType, rateCardItemId, rateCardItemName, name, unit, qty, rate } = body;
+  const { rateCardType, rateCardItemId, rateCardItemName, name, unit, qty } = body;
   if (rateCardType && !rateCardService.isRateCardKey(rateCardType)) {
     return { error: 'Unknown rate card type' };
   }
@@ -197,7 +202,7 @@ function validateLinePayload(body) {
     return { error: 'rateCardItemId or rateCardItemName is required with rateCardType' };
   }
   if (!rateCardType && !name) {
-    return { error: 'name is required for a manual line item' };
+    return { error: 'name is required for a scope-only line item' };
   }
   return {
     value: {
@@ -207,7 +212,6 @@ function validateLinePayload(body) {
       name,
       unit,
       qty: Number(qty) || 1,
-      rate: Number(rate) || 0,
     },
   };
 }
@@ -224,15 +228,10 @@ router.post('/:id/work-orders/:woId/line-items', asyncHandler(async (req, res) =
 }));
 
 router.put('/:id/work-orders/:woId/line-items/:itemId', asyncHandler(async (req, res) => {
-  const { name, unit = '', qty, rate } = req.body;
-  if (!name) return res.status(400).json({ error: 'name is required' });
+  const { error, value } = validateLinePayload(req.body);
+  if (error) return res.status(400).json({ error });
   try {
-    const item = await workOrderService.updateLineItem(req.params.woId, req.params.itemId, {
-      name,
-      unit,
-      qty: Number(qty) || 0,
-      rate: Number(rate) || 0,
-    });
+    const item = await workOrderService.updateLineItem(req.params.woId, req.params.itemId, value);
     if (!item) return res.status(404).json({ error: 'Line item not found' });
     res.json(req.user.isAdmin ? item : { ...item, cost: undefined });
   } catch (err) {
@@ -260,6 +259,19 @@ router.post('/:id/work-orders/:woId/finalize', asyncHandler(async (req, res) => 
   }
   if (workOrder.status !== 'draft') {
     return res.status(409).json({ error: 'Work order is not in draft state' });
+  }
+
+  // The rate-authority gate: every line item must resolve to a rate card
+  // entry before this can be finalized -- unresolved is fine mid-draft,
+  // never fine on the customer-facing document. See
+  // docs/feedback/2026-08-13-rate-card-authority-gap.md.
+  const unresolved = workOrder.lineItems.filter((li) => li.rate === null);
+  if (unresolved.length > 0) {
+    return res.status(409).json({
+      error: `Cannot finalize: ${unresolved.length} line item(s) have no rate card entry -- ${unresolved
+        .map((li) => li.name)
+        .join(', ')}`,
+    });
   }
 
   const [identity, project, lineItems] = await Promise.all([

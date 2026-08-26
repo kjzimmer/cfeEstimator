@@ -221,7 +221,11 @@ CREATE TABLE IF NOT EXISTS work_order_line_items (
   name            TEXT NOT NULL,
   unit            TEXT NOT NULL DEFAULT '',
   qty             NUMERIC(12,2) NOT NULL DEFAULT 1,
-  rate            NUMERIC(12,2) NOT NULL DEFAULT 0,
+  -- Nullable: rates only ever come from a rate card, never freehand entry
+  -- by anyone (docs/feedback/2026-08-13-rate-card-authority-gap.md). NULL
+  -- means unresolved -- no matching rate card entry exists yet. Finalize
+  -- blocks while any line item is unresolved; drafting/scoping does not.
+  rate            NUMERIC(12,2),
   -- Captured server-side from the source rate card at add-time (never
   -- client-supplied), nullable for manual lines. This column exists so the
   -- admin-only profit view can work -- the PDF-generation query is a
@@ -233,6 +237,14 @@ CREATE TABLE IF NOT EXISTS work_order_line_items (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration for pre-existing databases: the CREATE TABLE above only takes
+-- effect on a fresh install. Existing rows keep whatever rate they have --
+-- no backfill/migration of already-finalized work orders under the old
+-- freehand-rate behavior, per the rate-authority proposal's resolved
+-- open question.
+ALTER TABLE work_order_line_items ALTER COLUMN rate DROP NOT NULL;
+ALTER TABLE work_order_line_items ALTER COLUMN rate DROP DEFAULT;
 
 CREATE INDEX IF NOT EXISTS idx_work_orders_project_id ON work_orders(project_id);
 CREATE INDEX IF NOT EXISTS idx_work_order_line_items_work_order_id ON work_order_line_items(work_order_id);

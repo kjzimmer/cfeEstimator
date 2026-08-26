@@ -13,12 +13,23 @@ function money(n) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0);
 }
 
+// Rate/amount are null for a line item with no matching rate card entry --
+// shown as "—", never "$0.00", so an unpriced line never looks like a free
+// one. See docs/feedback/2026-08-13-rate-card-authority-gap.md.
+function moneyOrUnresolved(n) {
+  return n === null || n === undefined ? '—' : money(n);
+}
+
+function computeAmount(item) {
+  return item.rate === null || item.rate === undefined ? null : item.qty * item.rate;
+}
+
 function LineItemForm({ projectId, workOrderId, onAdded }) {
   const [mode, setMode] = useState('catalog');
   const [cardType, setCardType] = useState(RATE_CARD_OPTIONS[0].key);
   const [catalogItems, setCatalogItems] = useState([]);
   const [itemId, setItemId] = useState('');
-  const [manual, setManual] = useState({ name: '', unit: '', rate: '' });
+  const [manual, setManual] = useState({ name: '', unit: '' });
   const [qty, setQty] = useState('1');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -39,9 +50,9 @@ function LineItemForm({ projectId, workOrderId, onAdded }) {
       const payload =
         mode === 'catalog'
           ? { rateCardType: cardType, rateCardItemId: itemId, qty: Number(qty) || 1 }
-          : { name: manual.name, unit: manual.unit, rate: Number(manual.rate) || 0, qty: Number(qty) || 1 };
+          : { name: manual.name, unit: manual.unit, qty: Number(qty) || 1 };
       const item = await api.addWorkOrderLineItem(projectId, workOrderId, payload);
-      setManual({ name: '', unit: '', rate: '' });
+      setManual({ name: '', unit: '' });
       setQty('1');
       onAdded(item);
     } catch (err) {
@@ -64,7 +75,7 @@ function LineItemForm({ projectId, workOrderId, onAdded }) {
               mode === m ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text',
             ].join(' ')}
           >
-            {m === 'catalog' ? 'From rate card' : 'Manual'}
+            {m === 'catalog' ? 'From rate card' : 'Scope only'}
           </button>
         ))}
       </div>
@@ -119,51 +130,47 @@ function LineItemForm({ projectId, workOrderId, onAdded }) {
           </button>
         </div>
       ) : (
-        <div className="flex flex-wrap items-end gap-2">
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1">Description</label>
-            <input
-              value={manual.name}
-              onChange={(e) => setManual((m) => ({ ...m, name: e.target.value }))}
-              required
-              className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text w-48"
-            />
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-text-secondary">
+            No rate — rates only ever come from a rate card. This line will be unresolved until someone
+            with rate-card authority adds a matching entry.
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1">Description</label>
+              <input
+                value={manual.name}
+                onChange={(e) => setManual((m) => ({ ...m, name: e.target.value }))}
+                required
+                className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text w-48"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1">Unit</label>
+              <input
+                value={manual.unit}
+                onChange={(e) => setManual((m) => ({ ...m, unit: e.target.value }))}
+                className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text w-20"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1">Qty</label>
+              <input
+                type="number"
+                step="0.01"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text w-20"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="text-sm font-medium px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover disabled:opacity-60 text-white transition-colors"
+            >
+              Add
+            </button>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1">Unit</label>
-            <input
-              value={manual.unit}
-              onChange={(e) => setManual((m) => ({ ...m, unit: e.target.value }))}
-              className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text w-20"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1">Qty</label>
-            <input
-              type="number"
-              step="0.01"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text w-20"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1">Rate</label>
-            <input
-              type="number"
-              step="0.01"
-              value={manual.rate}
-              onChange={(e) => setManual((m) => ({ ...m, rate: e.target.value }))}
-              className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text w-24"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="text-sm font-medium px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover disabled:opacity-60 text-white transition-colors"
-          >
-            Add
-          </button>
         </div>
       )}
       {error && <p className="text-xs text-red-600">{error}</p>}
@@ -176,20 +183,25 @@ function LineItemRow({ projectId, workOrderId, item, onUpdated, onDeleted }) {
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  const isResolved = Boolean(item.rate_card_type);
+
   function startEdit() {
-    setDraft({ name: item.name, unit: item.unit, qty: item.qty, rate: item.rate });
+    setDraft({ name: item.name, unit: item.unit, qty: item.qty });
     setEditing(true);
   }
 
   async function save() {
     setBusy(true);
     try {
-      const updated = await api.updateWorkOrderLineItem(projectId, workOrderId, item.id, {
-        name: draft.name,
-        unit: draft.unit,
-        qty: Number(draft.qty) || 0,
-        rate: Number(draft.rate) || 0,
-      });
+      // Resolved lines only ever change qty -- re-passing the same
+      // rateCardType/name re-resolves against the live rate card (picking
+      // up any rate change) rather than freezing it at add-time. Unresolved
+      // lines can have their name/unit/qty edited freely; there's no rate
+      // field to submit either way -- rates only ever come from a rate card.
+      const payload = isResolved
+        ? { rateCardType: item.rate_card_type, rateCardItemName: item.name, qty: Number(draft.qty) || 0 }
+        : { name: draft.name, unit: draft.unit, qty: Number(draft.qty) || 0 };
+      const updated = await api.updateWorkOrderLineItem(projectId, workOrderId, item.id, payload);
       onUpdated(updated);
       setEditing(false);
     } finally {
@@ -211,18 +223,26 @@ function LineItemRow({ projectId, workOrderId, item, onUpdated, onDeleted }) {
     return (
       <tr className="border-t border-border">
         <td className="px-3 py-2">
-          <input
-            value={draft.name}
-            onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-            className="w-full rounded-md border border-border bg-bg px-2 py-1 text-sm text-text"
-          />
+          {isResolved ? (
+            <span className="text-sm text-text">{item.name}</span>
+          ) : (
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              className="w-full rounded-md border border-border bg-bg px-2 py-1 text-sm text-text"
+            />
+          )}
         </td>
         <td className="px-3 py-2">
-          <input
-            value={draft.unit}
-            onChange={(e) => setDraft((d) => ({ ...d, unit: e.target.value }))}
-            className="w-full rounded-md border border-border bg-bg px-2 py-1 text-sm text-text"
-          />
+          {isResolved ? (
+            <span className="text-sm text-text-secondary">{item.unit}</span>
+          ) : (
+            <input
+              value={draft.unit}
+              onChange={(e) => setDraft((d) => ({ ...d, unit: e.target.value }))}
+              className="w-full rounded-md border border-border bg-bg px-2 py-1 text-sm text-text"
+            />
+          )}
         </td>
         <td className="px-3 py-2">
           <input
@@ -233,14 +253,8 @@ function LineItemRow({ projectId, workOrderId, item, onUpdated, onDeleted }) {
             className="w-20 rounded-md border border-border bg-bg px-2 py-1 text-sm text-text"
           />
         </td>
-        <td className="px-3 py-2">
-          <input
-            type="number"
-            step="0.01"
-            value={draft.rate}
-            onChange={(e) => setDraft((d) => ({ ...d, rate: e.target.value }))}
-            className="w-24 rounded-md border border-border bg-bg px-2 py-1 text-sm text-text"
-          />
+        <td className="px-3 py-2 text-sm text-text-secondary" colSpan={2}>
+          {isResolved ? 'Rate comes from the rate card' : 'No rate card entry -- stays unresolved'}
         </td>
         <td className="px-3 py-2 text-right whitespace-nowrap">
           <button onClick={save} disabled={busy} className="text-xs font-medium text-accent mr-2">
@@ -256,11 +270,18 @@ function LineItemRow({ projectId, workOrderId, item, onUpdated, onDeleted }) {
 
   return (
     <tr className="border-t border-border">
-      <td className="px-3 py-2 text-sm text-text">{item.name}</td>
+      <td className="px-3 py-2 text-sm text-text">
+        {item.name}
+        {!isResolved && (
+          <span className="ml-2 text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+            unresolved
+          </span>
+        )}
+      </td>
       <td className="px-3 py-2 text-sm text-text-secondary">{item.unit}</td>
       <td className="px-3 py-2 text-sm text-text font-mono">{item.qty}</td>
-      <td className="px-3 py-2 text-sm text-text font-mono">{money(item.rate)}</td>
-      <td className="px-3 py-2 text-sm text-text font-mono">{money(item.amount)}</td>
+      <td className="px-3 py-2 text-sm text-text font-mono">{moneyOrUnresolved(item.rate)}</td>
+      <td className="px-3 py-2 text-sm text-text font-mono">{moneyOrUnresolved(item.amount)}</td>
       <td className="px-3 py-2 text-right whitespace-nowrap">
         <button onClick={startEdit} className="text-xs font-medium text-text-secondary hover:text-text mr-2">
           Edit
@@ -337,6 +358,8 @@ function DraftEditor({ projectId, isAdmin, workOrder, onChange, onFinalized }) {
     fields.requestedStart !== workOrder.requested_start ||
     Number(fields.contingencyPercent) !== Number(workOrder.contingency_percent) ||
     fields.terms !== workOrder.terms;
+
+  const unresolvedNames = workOrder.lineItems.filter((li) => li.rate === null).map((li) => li.name);
 
   async function saveFields() {
     setSaving(true);
@@ -448,7 +471,7 @@ function DraftEditor({ projectId, isAdmin, workOrder, onChange, onFinalized }) {
                     onUpdated={(updated) =>
                       onChange({
                         ...workOrder,
-                        lineItems: workOrder.lineItems.map((li) => (li.id === updated.id ? { ...updated, amount: updated.qty * updated.rate } : li)),
+                        lineItems: workOrder.lineItems.map((li) => (li.id === updated.id ? { ...updated, amount: computeAmount(updated) } : li)),
                       })
                     }
                     onDeleted={(id) =>
@@ -464,7 +487,7 @@ function DraftEditor({ projectId, isAdmin, workOrder, onChange, onFinalized }) {
           projectId={projectId}
           workOrderId={workOrder.id}
           onAdded={(item) =>
-            onChange({ ...workOrder, lineItems: [...workOrder.lineItems, { ...item, amount: item.qty * item.rate }] })
+            onChange({ ...workOrder, lineItems: [...workOrder.lineItems, { ...item, amount: computeAmount(item) }] })
           }
         />
       </div>
@@ -487,9 +510,14 @@ function DraftEditor({ projectId, isAdmin, workOrder, onChange, onFinalized }) {
       {isAdmin && <ProfitSummary projectId={projectId} woId={workOrder.id} />}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {unresolvedNames.length > 0 && (
+        <p className="text-xs text-amber-800">
+          Can't generate yet -- no rate card entry for: {unresolvedNames.join(', ')}
+        </p>
+      )}
       <button
         onClick={handleFinalize}
-        disabled={finalizing || workOrder.lineItems.length === 0}
+        disabled={finalizing || workOrder.lineItems.length === 0 || unresolvedNames.length > 0}
         className="text-sm font-medium px-4 py-2 rounded-md bg-accent hover:bg-accent-hover disabled:opacity-50 text-white transition-colors w-fit"
       >
         {finalizing ? 'Generating…' : 'Generate Work Order'}
