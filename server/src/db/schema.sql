@@ -280,7 +280,11 @@ CREATE TABLE IF NOT EXISTS semantic_memory (
   status        TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'hypothesis', 'confirmed', 'retired')),
   -- Distinct from Phase 3's import-provenance `origin` (imported/native) on a
   -- different table -- same field name, unrelated meaning. See the doc.
-  origin        TEXT NOT NULL CHECK (origin IN ('human_asserted', 'agent_inferred')),
+  -- 'industry_standard' added for the Task Agent's researched job-type
+  -- templates (docs/feedback/) -- neither a CFE person's assertion nor a
+  -- pattern inferred from CFE's own project history, so it gets its own
+  -- value rather than being folded into either existing one.
+  origin        TEXT NOT NULL CHECK (origin IN ('human_asserted', 'agent_inferred', 'industry_standard')),
   source_refs   JSONB NOT NULL DEFAULT '[]'::jsonb,
   evidence      JSONB NOT NULL DEFAULT '[]'::jsonb,
   proposed_by   INTEGER REFERENCES users(id),
@@ -291,5 +295,63 @@ CREATE TABLE IF NOT EXISTS semantic_memory (
   confirmed_via TEXT
 );
 
+-- Migration for pre-existing databases: adds 'industry_standard' to the
+-- origin CHECK on a table that already existed before this value was added.
+ALTER TABLE semantic_memory DROP CONSTRAINT IF EXISTS semantic_memory_origin_check;
+ALTER TABLE semantic_memory ADD CONSTRAINT semantic_memory_origin_check
+  CHECK (origin IN ('human_asserted', 'agent_inferred', 'industry_standard'));
+
 CREATE INDEX IF NOT EXISTS idx_procedural_memory_status ON procedural_memory(status);
 CREATE INDEX IF NOT EXISTS idx_semantic_memory_status ON semantic_memory(status);
+
+-- Tasks + dependencies (docs/incoming/task-resource-pipeline.md, refined in
+-- conversation -- see docs/feedback/ for what changed from the doc's literal
+-- schema and why). Scoped to work_order_id, matching the existing 1:1
+-- work-order:project simplifying assumption already used elsewhere; if that
+-- assumption is ever relaxed, tasks migrate to project-level.
+CREATE TABLE IF NOT EXISTS tasks (
+  id                SERIAL PRIMARY KEY,
+  work_order_id     INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  name              TEXT NOT NULL,
+  description       TEXT NOT NULL DEFAULT '',
+  -- 'industry_standard_template' added (beyond the doc's original three) for
+  -- a task instantiated from a researched job-type template rather than
+  -- extracted from this project's own SOW text -- see source_refs below for
+  -- which template.
+  created_via       TEXT NOT NULL CHECK (created_via IN ('sow_extraction', 'dependency_gap_fill', 'human_added', 'industry_standard_template')),
+  -- Who actually performs this task -- added during design: real CFE
+  -- estimates show mobilization gated on Owner-obtained permits/inspections
+  -- and third-party approvals, not just CFE crew sequencing. A task CFE is
+  -- just waiting on behaves differently in review than one CFE controls.
+  responsible_party TEXT NOT NULL DEFAULT 'CFE' CHECK (responsible_party IN ('CFE', 'owner', 'third_party')),
+  -- Required for sow_extraction/dependency_gap_fill/industry_standard_template,
+  -- optional for human_added -- enforced at the application layer, not here,
+  -- consistent with how this project handles conditionally-required fields.
+  rationale         TEXT NOT NULL DEFAULT '',
+  -- Not in the doc's original tasks schema (only work_order_line_items had
+  -- this) -- added so a task can cite which semantic memory hypothesis/
+  -- template it was instantiated from, the same way a line item cites its
+  -- pricing rationale.
+  source_refs       JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status            TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
+  sort_order        INTEGER NOT NULL DEFAULT 0,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  id                SERIAL PRIMARY KEY,
+  task_id           INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, -- successor
+  depends_on_task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, -- predecessor
+  -- 'human_added' beyond the doc's original two -- a dependency a person
+  -- draws manually during review isn't sow_stated or domain_sequencing_rule.
+  basis             TEXT NOT NULL CHECK (basis IN ('sow_stated', 'domain_sequencing_rule', 'human_added')),
+  -- false triggers review priority, not a block -- see docs/incoming/task-resource-pipeline.md §2.
+  confident         BOOLEAN NOT NULL DEFAULT true,
+  uncertainty_note  TEXT NOT NULL DEFAULT '',
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_work_order_id ON tasks(work_order_id);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_task_id ON task_dependencies(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_depends_on_task_id ON task_dependencies(depends_on_task_id);

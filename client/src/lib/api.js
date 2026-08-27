@@ -95,6 +95,25 @@ export const api = {
   getWorkOrderProfit: (projectId, woId) =>
     request(`/projects/${projectId}/work-orders/${woId}/profit`),
 
+  listTasks: (projectId, woId) => request(`/projects/${projectId}/work-orders/${woId}/tasks`),
+  createTask: (projectId, woId, payload) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks`, { method: 'POST', body: payload }),
+  updateTask: (projectId, woId, taskId, payload) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks/${taskId}`, { method: 'PUT', body: payload }),
+  deleteTask: (projectId, woId, taskId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks/${taskId}`, { method: 'DELETE' }),
+  addTaskDependency: (projectId, woId, taskId, dependsOnTaskId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks/${taskId}/dependencies`, {
+      method: 'POST',
+      body: { dependsOnTaskId },
+    }),
+  deleteTaskDependency: (projectId, woId, taskId, depId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks/${taskId}/dependencies/${depId}`, {
+      method: 'DELETE',
+    }),
+  approveTaskList: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks/approve`, { method: 'POST' }),
+
   listUsers: () => request('/users'),
   createUser: (payload) => request('/users', { method: 'POST', body: payload }),
   updateUser: (id, payload) => request(`/users/${id}`, { method: 'PUT', body: payload }),

@@ -6,11 +6,13 @@ import ConversationPanel from '../components/ConversationPanel.jsx';
 import DefinitionPanel from '../components/DefinitionPanel.jsx';
 import DocumentsPanel from '../components/DocumentsPanel.jsx';
 import WorkOrderPanel from '../components/WorkOrderPanel.jsx';
+import TasksPanel from '../components/TasksPanel.jsx';
 
 const PULSE_DURATION_MS = 1700;
 const TABS = [
   { key: 'definition', label: 'Definition' },
   { key: 'documents', label: 'Documents' },
+  { key: 'tasks', label: 'Tasks' },
   { key: 'workOrder', label: 'Work Order' },
 ];
 
@@ -127,6 +129,7 @@ export default function ProjectPage() {
               <DefinitionPanel definition={project.definition} pulsingKeys={pulsingKeys} />
             )}
             {activeTab === 'documents' && <DocumentsPanel projectId={id} />}
+            {activeTab === 'tasks' && <TasksPanel projectId={id} />}
             {activeTab === 'workOrder' && <WorkOrderPanel projectId={id} isAdmin={Boolean(user?.isAdmin)} />}
           </div>
         </div>

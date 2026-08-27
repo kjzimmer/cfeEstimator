@@ -4,6 +4,7 @@ import * as projectService from '../services/projectService.js';
 import * as messageService from '../services/messageService.js';
 import * as storage from '../services/storage.js';
 import * as workOrderService from '../services/workOrderService.js';
+import * as taskService from '../services/taskService.js';
 import * as rateCardService from '../services/rateCardService.js';
 import * as companyIdentityService from '../services/companyIdentityService.js';
 import * as customerService from '../services/customerService.js';
@@ -314,6 +315,58 @@ router.post('/:id/work-orders/:woId/revise', asyncHandler(async (req, res) => {
 
 router.get('/:id/work-orders/:woId/profit', requireAdmin, asyncHandler(async (req, res) => {
   res.json(await workOrderService.getProfitSummary(req.params.woId));
+}));
+
+// --- Tasks (docs/incoming/task-resource-pipeline.md) ---
+// Manual (human_added) tasks/dependencies only this phase -- not admin-gated,
+// matching Work Orders' posture (scoping isn't the sensitive action). The AI
+// generation loop is a later increment on this same data model/API.
+
+router.get('/:id/work-orders/:woId/tasks', asyncHandler(async (req, res) => {
+  res.json(await taskService.listTasks(req.params.woId));
+}));
+
+router.post('/:id/work-orders/:woId/tasks', asyncHandler(async (req, res) => {
+  const { name, description, responsibleParty } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  const task = await taskService.createTask(req.params.woId, { name, description, responsibleParty });
+  res.status(201).json(task);
+}));
+
+router.put('/:id/work-orders/:woId/tasks/:taskId', asyncHandler(async (req, res) => {
+  const { name, description, responsibleParty, rationale } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  const task = await taskService.updateTask(req.params.taskId, { name, description, responsibleParty, rationale });
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  res.json(task);
+}));
+
+router.delete('/:id/work-orders/:woId/tasks/:taskId', asyncHandler(async (req, res) => {
+  const deleted = await taskService.deleteTask(req.params.taskId);
+  if (!deleted) return res.status(404).json({ error: 'Task not found' });
+  res.status(204).end();
+}));
+
+router.post('/:id/work-orders/:woId/tasks/:taskId/dependencies', asyncHandler(async (req, res) => {
+  const { dependsOnTaskId } = req.body;
+  if (!dependsOnTaskId) return res.status(400).json({ error: 'dependsOnTaskId is required' });
+  try {
+    const dependency = await taskService.addDependency(Number(req.params.taskId), Number(dependsOnTaskId));
+    res.status(201).json(dependency);
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+}));
+
+router.delete('/:id/work-orders/:woId/tasks/:taskId/dependencies/:depId', asyncHandler(async (req, res) => {
+  const deleted = await taskService.deleteDependency(req.params.depId);
+  if (!deleted) return res.status(404).json({ error: 'Dependency not found' });
+  res.status(204).end();
+}));
+
+router.post('/:id/work-orders/:woId/tasks/approve', asyncHandler(async (req, res) => {
+  const approvedCount = await taskService.approveTaskList(req.params.woId);
+  res.json({ approvedCount });
 }));
 
 export default router;
