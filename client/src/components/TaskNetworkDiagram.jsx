@@ -88,7 +88,7 @@ export default function TaskNetworkDiagram({ tasks }) {
   if (tasks.length === 0) return null;
 
   return (
-    <div className="overflow-auto border border-border rounded-lg bg-bg">
+    <div className="shrink-0 overflow-auto border border-border rounded-lg bg-bg">
       <svg width={layout.width} height={layout.height}>
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
