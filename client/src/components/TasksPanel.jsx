@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
+import TaskNetworkDiagram from './TaskNetworkDiagram.jsx';
 
 const RESPONSIBLE_LABELS = { CFE: 'CFE', owner: 'Owner', third_party: 'Third party' };
 const RESPONSIBLE_OPTIONS = Object.keys(RESPONSIBLE_LABELS);
@@ -284,6 +285,7 @@ export default function TasksPanel({ projectId }) {
   const [approvedMsg, setApprovedMsg] = useState('');
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
+  const [showDiagram, setShowDiagram] = useState(false);
 
   function refreshTasks(woId) {
     return api.listTasks(projectId, woId).then(setTasks);
@@ -403,7 +405,17 @@ export default function TasksPanel({ projectId }) {
                 </span>
               )}
               {genError && <span className="text-xs text-red-600">{genError}</span>}
+              {tasks.length > 0 && (
+                <button
+                  onClick={() => setShowDiagram((v) => !v)}
+                  className="text-sm font-medium text-accent hover:underline w-fit"
+                >
+                  {showDiagram ? 'Hide diagram' : 'Show diagram'}
+                </button>
+              )}
             </div>
+
+            {showDiagram && tasks.length > 0 && <TaskNetworkDiagram tasks={tasks} />}
 
             {tasks.length === 0 && !generating && (
               <p className="text-sm text-text-secondary py-4">
