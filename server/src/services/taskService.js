@@ -31,6 +31,30 @@ export async function createTask(workOrderId, { name, description = '', responsi
   return { ...rows[0], dependencies: [] };
 }
 
+// Agent-facing creation path -- createTask() above always hardcodes
+// 'human_added' for the manual UI; the Task Agent needs 'sow_extraction' or
+// 'dependency_gap_fill' and a rationale, per docs/incoming/task-resource-pipeline.md.
+export async function createGeneratedTask(
+  workOrderId,
+  { name, description = '', createdVia, responsibleParty = 'CFE', rationale = '', sourceRefs = [] }
+) {
+  const { rows } = await pool.query(
+    `INSERT INTO tasks (work_order_id, name, description, created_via, responsible_party, rationale, source_refs)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+     RETURNING *`,
+    [workOrderId, name, description, createdVia, responsibleParty, rationale, JSON.stringify(sourceRefs)]
+  );
+  return { ...rows[0], dependencies: [] };
+}
+
+export async function findTaskByName(workOrderId, name) {
+  const { rows } = await pool.query(
+    'SELECT * FROM tasks WHERE work_order_id = $1 AND lower(name) = lower($2) LIMIT 1',
+    [workOrderId, name]
+  );
+  return rows[0] || null;
+}
+
 export async function updateTask(taskId, { name, description, responsibleParty, rationale }) {
   const { rows } = await pool.query(
     `UPDATE tasks

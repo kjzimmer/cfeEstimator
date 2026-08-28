@@ -274,27 +274,80 @@ function TaskRow({ task, allTasks, projectId, workOrderId, onUpdated, onDeleted,
   );
 }
 
+const POLL_INTERVAL_MS = 3000;
+
 export default function TasksPanel({ projectId }) {
   const [workOrderId, setWorkOrderId] = useState(undefined);
   const [tasks, setTasks] = useState(null);
   const [error, setError] = useState('');
   const [approving, setApproving] = useState(false);
   const [approvedMsg, setApprovedMsg] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState('');
+
+  function refreshTasks(woId) {
+    return api.listTasks(projectId, woId).then(setTasks);
+  }
 
   useEffect(() => {
     let cancelled = false;
     api
       .getWorkOrderDraft(projectId)
-      .then((draft) => {
+      .then(async (draft) => {
         if (cancelled) return;
-        setWorkOrderId(draft?.id ?? null);
-        if (draft?.id) return api.listTasks(projectId, draft.id).then((t) => !cancelled && setTasks(t));
+        const woId = draft?.id ?? null;
+        setWorkOrderId(woId);
+        if (!woId) return;
+        await refreshTasks(woId);
+        // Pick up an in-progress generation if the page was reloaded mid-run.
+        const run = await api.getTaskGenerationStatus(projectId, woId);
+        if (!cancelled && run?.status === 'running') setGenerating(true);
       })
       .catch((err) => !cancelled && setError(err.message));
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // §3.1: opaque to the end user -- a loading state while it runs, then the
+  // final result. Polling instead of a synchronous wait since a multi-round
+  // generation run can take well past a typical request timeout.
+  useEffect(() => {
+    if (!generating || !workOrderId) return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      try {
+        const run = await api.getTaskGenerationStatus(projectId, workOrderId);
+        if (cancelled) return;
+        if (run && run.status !== 'running') {
+          setGenerating(false);
+          if (run.status === 'error') setGenError(run.error_message || 'Task generation failed.');
+          await refreshTasks(workOrderId);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setGenerating(false);
+          setGenError(err.message);
+        }
+      }
+    }, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generating, workOrderId]);
+
+  async function handleGenerate() {
+    setGenError('');
+    try {
+      await api.generateTasks(projectId, workOrderId);
+      setGenerating(true);
+    } catch (err) {
+      setGenError(err.message);
+    }
+  }
 
   function updateTaskInList(updated) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
@@ -336,8 +389,26 @@ export default function TasksPanel({ projectId }) {
 
         {workOrderId && tasks && (
           <>
-            {tasks.length === 0 && (
-              <p className="text-sm text-text-secondary py-4">No tasks yet — add the first one below.</p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                className="text-sm font-medium px-3 py-1.5 rounded-md border border-accent text-accent hover:bg-accent/10 disabled:opacity-60 transition-colors w-fit"
+              >
+                {generating ? 'Generating tasks…' : 'Generate Tasks'}
+              </button>
+              {generating && (
+                <span className="text-xs text-text-secondary">
+                  This can take a minute or two — feel free to check back.
+                </span>
+              )}
+              {genError && <span className="text-xs text-red-600">{genError}</span>}
+            </div>
+
+            {tasks.length === 0 && !generating && (
+              <p className="text-sm text-text-secondary py-4">
+                No tasks yet — click "Generate Tasks" above, or add the first one by hand below.
+              </p>
             )}
             {tasks.length > 0 && (
               <div className="bg-bg border border-border rounded-lg divide-y divide-border">

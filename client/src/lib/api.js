@@ -113,6 +113,10 @@ export const api = {
     }),
   approveTaskList: (projectId, woId) =>
     request(`/projects/${projectId}/work-orders/${woId}/tasks/approve`, { method: 'POST' }),
+  generateTasks: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks/generate`, { method: 'POST' }),
+  getTaskGenerationStatus: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks/generation-status`),
 
   listUsers: () => request('/users'),
   createUser: (payload) => request('/users', { method: 'POST', body: payload }),

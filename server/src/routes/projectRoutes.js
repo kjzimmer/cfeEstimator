@@ -5,6 +5,7 @@ import * as messageService from '../services/messageService.js';
 import * as storage from '../services/storage.js';
 import * as workOrderService from '../services/workOrderService.js';
 import * as taskService from '../services/taskService.js';
+import * as taskGenerationService from '../agent/taskGenerationService.js';
 import * as rateCardService from '../services/rateCardService.js';
 import * as companyIdentityService from '../services/companyIdentityService.js';
 import * as customerService from '../services/customerService.js';
@@ -367,6 +368,33 @@ router.delete('/:id/work-orders/:woId/tasks/:taskId/dependencies/:depId', asyncH
 router.post('/:id/work-orders/:woId/tasks/approve', asyncHandler(async (req, res) => {
   const approvedCount = await taskService.approveTaskList(req.params.woId);
   res.json({ approvedCount });
+}));
+
+// Task Agent + Dependency Agent generation (docs/incoming/task-resource-pipeline.md
+// §3). Async by design -- returns immediately, client polls generation-status.
+// See docs/feedback/ for why (proxy timeout risk on a multi-round LLM loop).
+router.post('/:id/work-orders/:woId/tasks/generate', asyncHandler(async (req, res) => {
+  try {
+    const run = await taskGenerationService.startGeneration(req.params.woId, req.user.sub);
+    res.status(202).json(run);
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+}));
+
+router.get('/:id/work-orders/:woId/tasks/generation-status', asyncHandler(async (req, res) => {
+  const run = await taskGenerationService.getLatestRun(req.params.woId);
+  res.json(run);
+}));
+
+// Dev-mode visibility into the round-by-round trace (§3.1) -- admin-only,
+// never surfaced in the normal end-user flow.
+router.get('/:id/work-orders/:woId/tasks/generation-runs/:runId', requireAdmin, asyncHandler(async (req, res) => {
+  const run = await taskGenerationService.getRun(req.params.runId);
+  if (!run || String(run.work_order_id) !== req.params.woId) {
+    return res.status(404).json({ error: 'Run not found' });
+  }
+  res.json(run);
 }));
 
 export default router;

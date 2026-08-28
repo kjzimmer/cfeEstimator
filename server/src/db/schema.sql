@@ -355,3 +355,37 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
 CREATE INDEX IF NOT EXISTS idx_tasks_work_order_id ON tasks(work_order_id);
 CREATE INDEX IF NOT EXISTS idx_task_dependencies_task_id ON task_dependencies(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_dependencies_depends_on_task_id ON task_dependencies(depends_on_task_id);
+
+-- Tracks one "Generate Tasks" run (docs/incoming/task-resource-pipeline.md
+-- §3/§3.1). Async by design -- the triggering request returns immediately
+-- and the client polls status, since the underlying loop (and, later, live
+-- industry-standard research) can run well past a typical proxy timeout.
+-- `rounds` is the dev-mode trace (§3.1): each tool-calling round's activity,
+-- kept for tuning convergence behavior, never shown in normal end-user UX.
+CREATE TABLE IF NOT EXISTS task_generation_runs (
+  id                 SERIAL PRIMARY KEY,
+  work_order_id      INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  status             TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'converged', 'stopped', 'error')),
+  rounds             JSONB NOT NULL DEFAULT '[]'::jsonb,
+  error_message      TEXT,
+  -- Cumulative usage across every round of both phases -- a token ceiling
+  -- (checked mid-run, independent of the round caps above) is the actual
+  -- cost circuit breaker; these columns are what make a run's real cost
+  -- visible at a glance instead of having to sum the trace by hand.
+  total_input_tokens  INTEGER NOT NULL DEFAULT 0,
+  total_output_tokens INTEGER NOT NULL DEFAULT 0,
+  created_by     INTEGER REFERENCES users(id),
+  started_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at    TIMESTAMPTZ
+);
+
+ALTER TABLE task_generation_runs ADD COLUMN IF NOT EXISTS total_input_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE task_generation_runs ADD COLUMN IF NOT EXISTS total_output_tokens INTEGER NOT NULL DEFAULT 0;
+
+-- At most one running generation per work order at a time -- prevents a
+-- double-click (or a slow poll) from firing two overlapping loops that both
+-- write tasks into the same work order.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_gen_one_running_per_wo
+  ON task_generation_runs(work_order_id) WHERE status = 'running';
+
+CREATE INDEX IF NOT EXISTS idx_task_gen_work_order_id ON task_generation_runs(work_order_id);
