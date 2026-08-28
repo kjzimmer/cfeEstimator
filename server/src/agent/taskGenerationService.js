@@ -23,6 +23,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-5';
 const DRAFT_MAX_ROUNDS = 4;
 const SEQUENCE_MAX_ROUNDS = 8;
+const ORPHAN_REPAIR_MAX_ROUNDS = 3;
 // The round caps above bound *how many calls* happen, not *how much they
 // cost* -- each round resends the full message history plus project
 // context, so a run that uses every round on a large project costs
@@ -139,6 +140,21 @@ function buildSequenceSystemPrompt(projectContext, taskListText) {
 ${taskListText}
 
 Your job now is to sequence it. For every task above, call add_dependency for what it genuinely depends on -- you must attempt this for every task before finishing, not just the obvious ones. Include dependencies on Owner/third-party tasks where they apply. If sequencing reveals a required step with no task yet, call add_task for it (createdVia: dependency_gap_fill, with rationale explaining the gap), then add its dependencies too. Stop once every task's real dependencies are captured and no further gaps are apparent -- don't keep looping once sequencing is clean.
+
+## Project context, for reference
+${projectContext}`;
+}
+
+function buildOrphanRepairSystemPrompt(projectContext, taskListText, orphanListText) {
+  return `You already drafted and sequenced this task list for an excavation/site-work job:
+
+${taskListText}
+
+These specific tasks came out with NO dependency relationship in either direction -- nothing depends on them, and they depend on nothing:
+
+${orphanListText}
+
+That's almost always wrong for a real job; a task with truly zero sequencing relationship to everything else is rare (the very first task in the job is the one normal exception -- it may legitimately have nothing before it, but something later should still depend on it). Review each one and call add_dependency to connect it correctly, in whichever direction is actually true. Only leave one unconnected if you're genuinely confident it has no real relationship to anything else in this job -- don't force a connection that isn't real.
 
 ## Project context, for reference
 ${projectContext}`;
@@ -315,7 +331,7 @@ async function executeGeneration(runId, workOrderId) {
   }
 
   const taskListText = [...taskByName.values()].map((t) => `- ${t.name}`).join('\n');
-  await runPhase({
+  const sequenceRounds = await runPhase({
     runId,
     phase: 'sequence',
     system: buildSequenceSystemPrompt(projectContext, taskListText),
@@ -333,21 +349,60 @@ async function executeGeneration(runId, workOrderId) {
     return;
   }
 
-  // Sanity check, not just an optimistic "it ran, must be fine": with more
-  // than one task, zero dependencies means sequencing didn't actually
-  // happen, regardless of how the phase ended. Surface that plainly rather
-  // than reporting a false "converged".
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM task_dependencies d
-     JOIN tasks t ON t.id = d.task_id WHERE t.work_order_id = $1`,
-    [workOrderId]
-  );
-  if (taskByName.size > 1 && rows[0].count === 0) {
-    await finishRun(runId, 'stopped', 'Sequencing produced no dependencies -- review the drafted tasks and add them manually, or try again.');
+  // Verify sequencing actually connected every task, rather than trusting
+  // the phase's own stop_reason -- real testing found a task can slip
+  // through with zero dependency edges in either direction (not caught by
+  // "did sequencing produce any dependencies at all", since other tasks
+  // were fine). One corrective pass, naming the specific orphans, rather
+  // than looping indefinitely.
+  let orphans = await findOrphanTasks(workOrderId);
+  if (orphans.length > 0 && taskByName.size > 1) {
+    const orphanListText = orphans.map((o) => `- ${o.name}`).join('\n');
+    await runPhase({
+      runId,
+      phase: 'repair-orphans',
+      system: buildOrphanRepairSystemPrompt(projectContext, taskListText, orphanListText),
+      initialMessage: 'Connect the orphaned tasks now.',
+      tools: [ADD_DEPENDENCY_TOOL],
+      taskByName,
+      workOrderId,
+      roundOffset: draftRounds + sequenceRounds,
+      maxRounds: ORPHAN_REPAIR_MAX_ROUNDS,
+      usage,
+    });
+
+    if (usage.haltedForBudget) {
+      await finishRun(runId, 'stopped', `Token budget (${TOKEN_CEILING}) reached while repairing orphaned tasks; partial results saved.`);
+      return;
+    }
+
+    orphans = await findOrphanTasks(workOrderId);
+  }
+
+  if (orphans.length > 0) {
+    await finishRun(
+      runId,
+      'stopped',
+      `${orphans.length} task(s) still have no dependency relationship after a repair attempt -- review and connect manually: ${orphans.map((o) => o.name).join(', ')}`
+    );
     return;
   }
 
   await finishRun(runId, 'converged');
+}
+
+// A task with zero dependency edges in either direction -- neither depends
+// on anything, nor is anything depending on it. Almost always a sequencing
+// omission, not a legitimate standalone task. See the repair pass above.
+async function findOrphanTasks(workOrderId) {
+  const { rows } = await pool.query(
+    `SELECT t.id, t.name FROM tasks t
+     WHERE t.work_order_id = $1
+       AND NOT EXISTS (SELECT 1 FROM task_dependencies d WHERE d.task_id = t.id)
+       AND NOT EXISTS (SELECT 1 FROM task_dependencies d WHERE d.depends_on_task_id = t.id)`,
+    [workOrderId]
+  );
+  return rows;
 }
 
 export async function getLatestRun(workOrderId) {
