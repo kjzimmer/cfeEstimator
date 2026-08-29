@@ -389,3 +389,51 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_task_gen_one_running_per_wo
   ON task_generation_runs(work_order_id) WHERE status = 'running';
 
 CREATE INDEX IF NOT EXISTS idx_task_gen_work_order_id ON task_generation_runs(work_order_id);
+
+-- Resource requirements (docs/incoming/task-resource-pipeline.md §4, refined
+-- in conversation -- see docs/feedback/ for the delta from the doc's literal
+-- schema). The doc's §4 jumps straight from a converged task to a grouped,
+-- rate-card-matched line item in one step. Karl's framing splits that: what
+-- a task needs (this table -- judgment, general construction knowledge +
+-- CFE-specific tendencies) is a separate concern from turning matching
+-- requirements across tasks into a costed line item (mechanical grouping,
+-- see resourceRequirementService.generateLineItems -- no AI call). One row
+-- per task per resource it needs; the mechanical step groups rows across
+-- tasks that describe the same resource into one work_order_line_item.
+CREATE TABLE IF NOT EXISTS task_resource_requirements (
+  id            SERIAL PRIMARY KEY,
+  task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('labor', 'material', 'equipment', 'other')),
+  -- Matched against a rate card by name in the mechanical grouping step, and
+  -- used (verbatim, case-insensitive) as the grouping key across tasks --
+  -- the estimation step is responsible for using a consistent description
+  -- when two tasks really do share one resource, not the mechanical step.
+  description   TEXT NOT NULL,
+  qty           NUMERIC(12,2) NOT NULL DEFAULT 0,
+  unit          TEXT NOT NULL DEFAULT '',
+  -- Required for resource_estimation, optional for human_added -- same
+  -- application-layer-enforced convention as tasks.rationale.
+  rationale     TEXT NOT NULL DEFAULT '',
+  created_via   TEXT NOT NULL CHECK (created_via IN ('resource_estimation', 'human_added')),
+  -- Same shape/vocabulary as tasks.source_refs -- cites a semantic_memory
+  -- hypothesis/confirmed entry when a CFE-specific tendency drove the
+  -- qty/description choice, per the Resource Agent's planned "proactively
+  -- seek out CFE-specific tendencies, cite general knowledge otherwise" loop.
+  source_refs   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_resource_requirements_task_id ON task_resource_requirements(task_id);
+
+-- Join table (task-resource-pipeline.md §2, "Revised from an earlier draft"
+-- note) -- one line item can cover several tasks' worth of work as a single
+-- undivided quantity (real CFE estimate convention), so no quantity column
+-- here; the quantity lives on work_order_line_items itself.
+CREATE TABLE IF NOT EXISTS work_order_line_item_tasks (
+  line_item_id INTEGER NOT NULL REFERENCES work_order_line_items(id) ON DELETE CASCADE,
+  task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  PRIMARY KEY (line_item_id, task_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wo_line_item_tasks_task_id ON work_order_line_item_tasks(task_id);

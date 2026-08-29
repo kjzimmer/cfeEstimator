@@ -118,6 +118,25 @@ export const api = {
   getTaskGenerationStatus: (projectId, woId) =>
     request(`/projects/${projectId}/work-orders/${woId}/tasks/generation-status`),
 
+  listResourceRequirements: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/resource-requirements`),
+  createResourceRequirement: (projectId, woId, taskId, payload) =>
+    request(`/projects/${projectId}/work-orders/${woId}/tasks/${taskId}/resource-requirements`, {
+      method: 'POST',
+      body: payload,
+    }),
+  updateResourceRequirement: (projectId, woId, reqId, payload) =>
+    request(`/projects/${projectId}/work-orders/${woId}/resource-requirements/${reqId}`, {
+      method: 'PUT',
+      body: payload,
+    }),
+  deleteResourceRequirement: (projectId, woId, reqId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/resource-requirements/${reqId}`, { method: 'DELETE' }),
+  generateLineItemsFromResources: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/resource-requirements/generate-line-items`, {
+      method: 'POST',
+    }),
+
   listUsers: () => request('/users'),
   createUser: (payload) => request('/users', { method: 'POST', body: payload }),
   updateUser: (id, payload) => request(`/users/${id}`, { method: 'PUT', body: payload }),

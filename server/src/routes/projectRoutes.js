@@ -5,6 +5,7 @@ import * as messageService from '../services/messageService.js';
 import * as storage from '../services/storage.js';
 import * as workOrderService from '../services/workOrderService.js';
 import * as taskService from '../services/taskService.js';
+import * as resourceRequirementService from '../services/resourceRequirementService.js';
 import * as taskGenerationService from '../agent/taskGenerationService.js';
 import * as rateCardService from '../services/rateCardService.js';
 import * as companyIdentityService from '../services/companyIdentityService.js';
@@ -395,6 +396,63 @@ router.get('/:id/work-orders/:woId/tasks/generation-runs/:runId', requireAdmin, 
     return res.status(404).json({ error: 'Run not found' });
   }
   res.json(run);
+}));
+
+// --- Task resource requirements (docs/incoming/task-resource-pipeline.md §4,
+// refined per docs/feedback/) ---
+// Manual (human_added) requirements only this phase -- the Resource Agent's
+// estimation loop is a later increment on this same data model/API.
+
+router.get('/:id/work-orders/:woId/resource-requirements', asyncHandler(async (req, res) => {
+  res.json(await resourceRequirementService.listRequirements(req.params.woId));
+}));
+
+router.post('/:id/work-orders/:woId/tasks/:taskId/resource-requirements', asyncHandler(async (req, res) => {
+  const { resourceType, description, qty, unit, rationale } = req.body;
+  if (!resourceType || !description) {
+    return res.status(400).json({ error: 'resourceType and description are required' });
+  }
+  const requirement = await resourceRequirementService.createRequirement(req.params.taskId, {
+    resourceType,
+    description,
+    qty,
+    unit,
+    rationale,
+  });
+  res.status(201).json(requirement);
+}));
+
+router.put('/:id/work-orders/:woId/resource-requirements/:reqId', asyncHandler(async (req, res) => {
+  const { resourceType, description, qty, unit, rationale } = req.body;
+  if (!resourceType || !description) {
+    return res.status(400).json({ error: 'resourceType and description are required' });
+  }
+  const requirement = await resourceRequirementService.updateRequirement(req.params.reqId, {
+    resourceType,
+    description,
+    qty,
+    unit,
+    rationale,
+  });
+  if (!requirement) return res.status(404).json({ error: 'Requirement not found' });
+  res.json(requirement);
+}));
+
+router.delete('/:id/work-orders/:woId/resource-requirements/:reqId', asyncHandler(async (req, res) => {
+  const deleted = await resourceRequirementService.deleteRequirement(req.params.reqId);
+  if (!deleted) return res.status(404).json({ error: 'Requirement not found' });
+  res.status(204).end();
+}));
+
+// The mechanical grouping/rate-matching pass -- see resourceRequirementService
+// for why this has no AI call even though it's part of the "Resource Agent" feature.
+router.post('/:id/work-orders/:woId/resource-requirements/generate-line-items', asyncHandler(async (req, res) => {
+  try {
+    const result = await resourceRequirementService.generateLineItems(req.params.woId);
+    res.json(result);
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
 }));
 
 export default router;

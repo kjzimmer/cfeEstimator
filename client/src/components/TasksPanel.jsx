@@ -5,6 +5,9 @@ import TaskNetworkDiagram from './TaskNetworkDiagram.jsx';
 const RESPONSIBLE_LABELS = { CFE: 'CFE', owner: 'Owner', third_party: 'Third party' };
 const RESPONSIBLE_OPTIONS = Object.keys(RESPONSIBLE_LABELS);
 
+const RESOURCE_TYPE_LABELS = { labor: 'Labor', material: 'Material', equipment: 'Equipment', other: 'Other' };
+const RESOURCE_TYPE_OPTIONS = Object.keys(RESOURCE_TYPE_LABELS);
+
 function AddTaskForm({ projectId, workOrderId, onAdded }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -138,7 +141,85 @@ function DependencyPicker({ task, otherTasks, projectId, workOrderId, onAdded })
   );
 }
 
-function TaskRow({ task, allTasks, projectId, workOrderId, onUpdated, onDeleted, onDepsChanged }) {
+// Add/remove only, no inline edit -- same lighter-weight pattern as
+// DependencyPicker for a task's sub-items, not the full edit TaskRow gets.
+function AddResourceRequirementForm({ task, projectId, workOrderId, onAdded }) {
+  const [resourceType, setResourceType] = useState('labor');
+  const [description, setDescription] = useState('');
+  const [qty, setQty] = useState('1');
+  const [unit, setUnit] = useState('');
+  const [rationale, setRationale] = useState('');
+  const [error, setError] = useState('');
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    if (!description.trim()) return;
+    setError('');
+    try {
+      const req = await api.createResourceRequirement(projectId, workOrderId, task.id, {
+        resourceType,
+        description,
+        qty: Number(qty) || 0,
+        unit,
+        rationale,
+      });
+      setDescription('');
+      setQty('1');
+      setUnit('');
+      setRationale('');
+      onAdded(req);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-1.5 mt-1">
+      <select
+        value={resourceType}
+        onChange={(e) => setResourceType(e.target.value)}
+        className="text-xs rounded-md border border-border bg-surface px-1.5 py-1 text-text"
+      >
+        {RESOURCE_TYPE_OPTIONS.map((t) => (
+          <option key={t} value={t}>
+            {RESOURCE_TYPE_LABELS[t]}
+          </option>
+        ))}
+      </select>
+      <input
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Resource description"
+        className="text-xs rounded-md border border-border bg-surface px-1.5 py-1 text-text w-44"
+      />
+      <input
+        type="number"
+        step="0.01"
+        value={qty}
+        onChange={(e) => setQty(e.target.value)}
+        className="text-xs rounded-md border border-border bg-surface px-1.5 py-1 text-text w-16"
+      />
+      <input
+        value={unit}
+        onChange={(e) => setUnit(e.target.value)}
+        placeholder="unit"
+        className="text-xs rounded-md border border-border bg-surface px-1.5 py-1 text-text w-14"
+      />
+      <input
+        value={rationale}
+        onChange={(e) => setRationale(e.target.value)}
+        placeholder="Rationale (optional)"
+        className="text-xs rounded-md border border-border bg-surface px-1.5 py-1 text-text w-40"
+      />
+      <button type="submit" disabled={!description.trim()} className="text-xs font-medium text-accent disabled:opacity-40">
+        Add
+      </button>
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </form>
+  );
+}
+
+function TaskRow({ task, allTasks, requirements, projectId, workOrderId, onUpdated, onDeleted, onDepsChanged, onRequirementsChanged }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -172,6 +253,11 @@ function TaskRow({ task, allTasks, projectId, workOrderId, onUpdated, onDeleted,
   async function removeDependency(depId) {
     await api.deleteTaskDependency(projectId, workOrderId, task.id, depId);
     onDepsChanged(task.id, task.dependencies.filter((d) => d.id !== depId));
+  }
+
+  async function removeRequirement(reqId) {
+    await api.deleteResourceRequirement(projectId, workOrderId, reqId);
+    onRequirementsChanged(task.id, requirements.filter((r) => r.id !== reqId));
   }
 
   const byId = Object.fromEntries(allTasks.map((t) => [t.id, t]));
@@ -260,6 +346,28 @@ function TaskRow({ task, allTasks, projectId, workOrderId, onUpdated, onDeleted,
               workOrderId={workOrderId}
               onAdded={(dep) => onDepsChanged(task.id, [...task.dependencies, dep])}
             />
+            {requirements.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {requirements.map((r) => (
+                  <span
+                    key={r.id}
+                    className="text-xs px-1.5 py-0.5 rounded bg-black/[0.04] text-text-secondary flex items-center gap-1"
+                    title={r.rationale || undefined}
+                  >
+                    {RESOURCE_TYPE_LABELS[r.resource_type]}: {r.description} — {r.qty} {r.unit}
+                    <button onClick={() => removeRequirement(r.id)} className="hover:text-red-600" title="Remove">
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <AddResourceRequirementForm
+              task={task}
+              projectId={projectId}
+              workOrderId={workOrderId}
+              onAdded={(req) => onRequirementsChanged(task.id, [...requirements, req])}
+            />
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button onClick={startEdit} className="text-xs font-medium text-text-secondary hover:text-text">
@@ -280,15 +388,24 @@ const POLL_INTERVAL_MS = 3000;
 export default function TasksPanel({ projectId }) {
   const [workOrderId, setWorkOrderId] = useState(undefined);
   const [tasks, setTasks] = useState(null);
+  const [requirements, setRequirements] = useState([]);
   const [error, setError] = useState('');
   const [approving, setApproving] = useState(false);
   const [approvedMsg, setApprovedMsg] = useState('');
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
   const [showDiagram, setShowDiagram] = useState(false);
+  const [generatingLineItems, setGeneratingLineItems] = useState(false);
+  const [lineItemsMsg, setLineItemsMsg] = useState('');
+  const [lineItemsError, setLineItemsError] = useState('');
 
   function refreshTasks(woId) {
-    return api.listTasks(projectId, woId).then(setTasks);
+    return Promise.all([api.listTasks(projectId, woId), api.listResourceRequirements(projectId, woId)]).then(
+      ([t, r]) => {
+        setTasks(t);
+        setRequirements(r);
+      }
+    );
   }
 
   useEffect(() => {
@@ -369,7 +486,22 @@ export default function TasksPanel({ projectId }) {
     }
   }
 
+  async function handleGenerateLineItems() {
+    setGeneratingLineItems(true);
+    setLineItemsMsg('');
+    setLineItemsError('');
+    try {
+      const { lineItemCount } = await api.generateLineItemsFromResources(projectId, workOrderId);
+      setLineItemsMsg(`Generated ${lineItemCount} line item(s) -- see the Work Order tab.`);
+    } catch (err) {
+      setLineItemsError(err.message);
+    } finally {
+      setGeneratingLineItems(false);
+    }
+  }
+
   const draftCount = tasks?.filter((t) => t.status === 'draft').length ?? 0;
+  const requirementsByTask = (taskId) => requirements.filter((r) => r.task_id === taskId);
 
   return (
     <div className="h-full flex flex-col bg-surface border border-border rounded-lg overflow-hidden">
@@ -429,12 +561,16 @@ export default function TasksPanel({ projectId }) {
                     key={task.id}
                     task={task}
                     allTasks={tasks}
+                    requirements={requirementsByTask(task.id)}
                     projectId={projectId}
                     workOrderId={workOrderId}
                     onUpdated={updateTaskInList}
                     onDeleted={(id) => setTasks((prev) => prev.filter((t) => t.id !== id))}
                     onDepsChanged={(taskId, dependencies) =>
                       setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, dependencies } : t)))
+                    }
+                    onRequirementsChanged={(taskId, taskRequirements) =>
+                      setRequirements((prev) => [...prev.filter((r) => r.task_id !== taskId), ...taskRequirements])
                     }
                   />
                 ))}
@@ -455,6 +591,24 @@ export default function TasksPanel({ projectId }) {
                   {approving ? 'Approving…' : `Approve Task List${draftCount > 0 ? ` (${draftCount} draft)` : ''}`}
                 </button>
                 {approvedMsg && <span className="text-xs text-text-secondary">{approvedMsg}</span>}
+              </div>
+            )}
+            {tasks.length > 0 && draftCount === 0 && (
+              <div className="pt-2 border-t border-border flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={handleGenerateLineItems}
+                  disabled={generatingLineItems || requirements.length === 0}
+                  className="text-sm font-medium px-4 py-2 rounded-md bg-accent hover:bg-accent-hover disabled:opacity-50 text-white transition-colors w-fit"
+                >
+                  {generatingLineItems ? 'Generating…' : 'Generate Line Items'}
+                </button>
+                {requirements.length === 0 && (
+                  <span className="text-xs text-text-secondary">
+                    Add resource requirements to each task above first.
+                  </span>
+                )}
+                {lineItemsMsg && <span className="text-xs text-text-secondary">{lineItemsMsg}</span>}
+                {lineItemsError && <span className="text-xs text-red-600">{lineItemsError}</span>}
               </div>
             )}
           </>
