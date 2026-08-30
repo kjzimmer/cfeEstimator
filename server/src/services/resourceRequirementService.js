@@ -1,11 +1,11 @@
 import { pool } from '../db/pool.js';
 import * as rateCardService from './rateCardService.js';
+import * as memoryService from './memoryService.js';
 
 // Task resource requirements (docs/incoming/task-resource-pipeline.md §4,
-// refined per Karl -- see docs/feedback/). This phase only supports manual
-// (human_added) requirements -- the Resource Agent's estimation loop is a
-// later increment on top of this same data model and API, same pattern as
-// tasks/task_dependencies before the Task/Dependency Agent loop landed.
+// refined per Karl -- see docs/feedback/). Manual (human_added) CRUD plus the
+// Resource Agent's generated path (created_via: resource_estimation), same
+// relationship the manual task CRUD had to the Task/Dependency Agent loop.
 
 export async function listRequirements(workOrderId) {
   const { rows } = await pool.query(
@@ -31,15 +31,105 @@ export async function createRequirement(
   return rows[0];
 }
 
-export async function updateRequirement(requirementId, { resourceType, description, qty, unit, rationale }) {
+// Agent-facing creation path -- createRequirement() above always hardcodes
+// 'human_added' for the manual UI; the Resource Agent needs
+// 'resource_estimation' plus the confidence/basis/citation fields it reasons
+// through per docs/feedback/.
+export async function createGeneratedRequirement(
+  taskId,
+  {
+    resourceType,
+    description,
+    qty = 0,
+    unit = '',
+    rationale = '',
+    confident = true,
+    uncertaintyNote = '',
+    basisQuantity = null,
+    basisQuantityUnit = null,
+    basisRate = null,
+    basisRateUnit = null,
+    sourceRefs = [],
+  }
+) {
   const { rows } = await pool.query(
-    `UPDATE task_resource_requirements
-     SET resource_type = $2, description = $3, qty = $4, unit = $5, rationale = $6, updated_at = now()
-     WHERE id = $1
+    `INSERT INTO task_resource_requirements
+       (task_id, resource_type, description, qty, unit, rationale, created_via,
+        confident, uncertainty_note, basis_quantity, basis_quantity_unit, basis_rate, basis_rate_unit, source_refs)
+     VALUES ($1, $2, $3, $4, $5, $6, 'resource_estimation', $7, $8, $9, $10, $11, $12, $13::jsonb)
      RETURNING *`,
-    [requirementId, resourceType, description, qty || 0, unit || '', rationale || '']
+    [
+      taskId,
+      resourceType,
+      description,
+      qty,
+      unit,
+      rationale,
+      confident,
+      uncertaintyNote,
+      basisQuantity,
+      basisQuantityUnit,
+      basisRate,
+      basisRateUnit,
+      JSON.stringify(sourceRefs),
+    ]
+  );
+  return rows[0];
+}
+
+export async function findRequirementByDescription(taskId, description) {
+  const { rows } = await pool.query(
+    'SELECT * FROM task_resource_requirements WHERE task_id = $1 AND lower(description) = lower($2) LIMIT 1',
+    [taskId, description]
   );
   return rows[0] || null;
+}
+
+// The "teach the agent" hook lives here, not in the route -- editing a
+// requirement always goes through this function, so a correction to an
+// AI-generated estimate gets captured as memory evidence no matter which
+// caller (UI edit today, anything else later) makes the change. See
+// memoryService.recordResourceCorrection for what happens with it.
+export async function updateRequirement(
+  requirementId,
+  { resourceType, description, qty, unit, rationale, confident, uncertaintyNote, basisQuantity, basisRate, basisQuantityUnit, basisRateUnit }
+) {
+  const { rows: beforeRows } = await pool.query('SELECT * FROM task_resource_requirements WHERE id = $1', [requirementId]);
+  const before = beforeRows[0];
+  if (!before) return null;
+
+  const { rows } = await pool.query(
+    `UPDATE task_resource_requirements
+     SET resource_type = $2, description = $3, qty = $4, unit = $5, rationale = $6,
+         confident = $7, uncertainty_note = $8,
+         basis_quantity = $9, basis_quantity_unit = $10, basis_rate = $11, basis_rate_unit = $12,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING *`,
+    [
+      requirementId,
+      resourceType,
+      description,
+      qty || 0,
+      unit || '',
+      rationale || '',
+      confident ?? true,
+      uncertaintyNote || '',
+      basisQuantity ?? null,
+      basisQuantityUnit || null,
+      basisRate ?? null,
+      basisRateUnit || null,
+    ]
+  );
+  const updated = rows[0];
+  if (!updated) return null;
+
+  await memoryService.recordResourceCorrection({
+    requirement: before,
+    corrected: { description, qty: qty || 0, unit: unit || '', basisQuantity: basisQuantity ?? null, basisRate: basisRate ?? null },
+  });
+
+  return updated;
 }
 
 export async function deleteRequirement(requirementId) {

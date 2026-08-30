@@ -6,6 +6,7 @@ import * as storage from '../services/storage.js';
 import * as workOrderService from '../services/workOrderService.js';
 import * as taskService from '../services/taskService.js';
 import * as resourceRequirementService from '../services/resourceRequirementService.js';
+import * as resourceAgentService from '../agent/resourceAgentService.js';
 import * as taskGenerationService from '../agent/taskGenerationService.js';
 import * as rateCardService from '../services/rateCardService.js';
 import * as companyIdentityService from '../services/companyIdentityService.js';
@@ -423,7 +424,19 @@ router.post('/:id/work-orders/:woId/tasks/:taskId/resource-requirements', asyncH
 }));
 
 router.put('/:id/work-orders/:woId/resource-requirements/:reqId', asyncHandler(async (req, res) => {
-  const { resourceType, description, qty, unit, rationale } = req.body;
+  const {
+    resourceType,
+    description,
+    qty,
+    unit,
+    rationale,
+    confident,
+    uncertaintyNote,
+    basisQuantity,
+    basisQuantityUnit,
+    basisRate,
+    basisRateUnit,
+  } = req.body;
   if (!resourceType || !description) {
     return res.status(400).json({ error: 'resourceType and description are required' });
   }
@@ -433,6 +446,12 @@ router.put('/:id/work-orders/:woId/resource-requirements/:reqId', asyncHandler(a
     qty,
     unit,
     rationale,
+    confident,
+    uncertaintyNote,
+    basisQuantity,
+    basisQuantityUnit,
+    basisRate,
+    basisRateUnit,
   });
   if (!requirement) return res.status(404).json({ error: 'Requirement not found' });
   res.json(requirement);
@@ -453,6 +472,30 @@ router.post('/:id/work-orders/:woId/resource-requirements/generate-line-items', 
   } catch (err) {
     res.status(409).json({ error: err.message });
   }
+}));
+
+// The Resource Agent's estimation loop -- async by design, same reasoning as
+// Task Agent's generate endpoint (proxy timeout risk on a multi-round LLM loop).
+router.post('/:id/work-orders/:woId/resource-requirements/generate', asyncHandler(async (req, res) => {
+  try {
+    const run = await resourceAgentService.startGeneration(req.params.woId, req.user.sub);
+    res.status(202).json(run);
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+}));
+
+router.get('/:id/work-orders/:woId/resource-requirements/generation-status', asyncHandler(async (req, res) => {
+  const run = await resourceAgentService.getLatestRun(req.params.woId);
+  res.json(run);
+}));
+
+router.get('/:id/work-orders/:woId/resource-requirements/generation-runs/:runId', requireAdmin, asyncHandler(async (req, res) => {
+  const run = await resourceAgentService.getRun(req.params.runId);
+  if (!run || String(run.work_order_id) !== req.params.woId) {
+    return res.status(404).json({ error: 'Run not found' });
+  }
+  res.json(run);
 }));
 
 export default router;

@@ -93,7 +93,9 @@ const ADD_DEPENDENCY_TOOL = {
   },
 };
 
-async function buildProjectContext(projectId) {
+// Exported for reuse by resourceAgentService.js -- same project context, no
+// reason to rebuild it.
+export async function buildProjectContext(projectId) {
   const [project, messages, files] = await Promise.all([
     projectService.getProject(projectId),
     messageService.listMessages(projectId),

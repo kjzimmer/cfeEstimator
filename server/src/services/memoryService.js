@@ -78,6 +78,87 @@ export async function listRetired() {
   ].sort((a, b) => new Date(b.reviewed_at) - new Date(a.reviewed_at));
 }
 
+// Activates the 'agent_proposed' path reserved (but unused) since Phase 1 --
+// see docs/feedback/. Used sparingly: a systemic/structural observation
+// (e.g. "the SOW rarely states debris volume, so productivity-based
+// estimates for this task type are usually a guess"), not per-task noise.
+// Lands in the exact same review queue human_asserted entries already use --
+// listProposals() doesn't filter by source.
+export async function proposeFromAgent({ instruction, sourceRefs = [] }) {
+  const { rows } = await pool.query(
+    `INSERT INTO procedural_memory (instruction, status, source, source_refs)
+     VALUES ($1, 'proposed', 'agent_proposed', $2::jsonb)
+     RETURNING *`,
+    [instruction, JSON.stringify(sourceRefs)]
+  );
+  return rows[0];
+}
+
+// The "teach the agent" loop, happening as a side effect of normal work-order
+// review rather than a separate learning workflow: when a human corrects an
+// AI-estimated resource requirement, capture that correction as evidence --
+// either against the semantic memory hypothesis the estimate already cited,
+// or as a brand-new hypothesis if it didn't cite one yet. Writes 'hypothesis'
+// status directly (the schema's reserved "Phase 2 rationale-driven
+// agent_inferred path, bypassing the Phase 1 proposal queue") -- these feed
+// future prompts via listActiveSemantic() immediately, without a human review
+// step; promoting a hypothesis to 'confirmed' (or retiring it) once enough
+// evidence accumulates is the Company Memory Agent's job, not built yet.
+// No-op for human_added requirements (nothing to correct) or a no-op edit.
+export async function recordResourceCorrection({ requirement, corrected }) {
+  if (requirement.created_via !== 'resource_estimation') return null;
+
+  const changed =
+    Number(requirement.qty) !== Number(corrected.qty) ||
+    (requirement.basis_rate !== null && requirement.basis_rate !== undefined
+      ? Number(requirement.basis_rate) !== Number(corrected.basisRate ?? requirement.basis_rate)
+      : corrected.basisRate !== null && corrected.basisRate !== undefined) ||
+    requirement.description.trim().toLowerCase() !== corrected.description.trim().toLowerCase();
+  if (!changed) return null;
+
+  const evidenceEntry = {
+    type: 'human_correction',
+    task_id: requirement.task_id,
+    requirement_id: requirement.id,
+    original: {
+      description: requirement.description,
+      qty: requirement.qty,
+      unit: requirement.unit,
+      basisQuantity: requirement.basis_quantity,
+      basisRate: requirement.basis_rate,
+    },
+    corrected: {
+      description: corrected.description,
+      qty: corrected.qty,
+      unit: corrected.unit,
+      basisQuantity: corrected.basisQuantity ?? null,
+      basisRate: corrected.basisRate ?? null,
+    },
+    at: new Date().toISOString(),
+  };
+
+  const cited = (requirement.source_refs || []).find((r) => r.type === 'semantic_memory_hypothesis' && r.id);
+  if (cited) {
+    const { rows } = await pool.query(
+      `UPDATE semantic_memory SET evidence = evidence || $2::jsonb WHERE id = $1 RETURNING *`,
+      [cited.id, JSON.stringify([evidenceEntry])]
+    );
+    return rows[0] || null;
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO semantic_memory (content, status, origin, source_refs, evidence)
+     VALUES ($1, 'hypothesis', 'agent_inferred', $2::jsonb, $3::jsonb)
+     RETURNING *`,
+    [
+      `A human corrected an AI-estimated resource requirement for "${requirement.description}" -- the corrected value may reflect a CFE-specific tendency worth confirming.`,
+      JSON.stringify([{ type: 'task_resource_requirement', id: requirement.id }]),
+      JSON.stringify([evidenceEntry]),
+    ]
+  );
+  return rows[0];
+}
+
 export async function reviewProcedural(id, decision, reviewedBy) {
   const status = decision === 'accept' ? 'active' : 'retired';
   const { rows } = await pool.query(

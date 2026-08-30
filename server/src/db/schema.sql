@@ -258,14 +258,19 @@ CREATE TABLE IF NOT EXISTS procedural_memory (
   id           SERIAL PRIMARY KEY,
   instruction  TEXT NOT NULL,
   status       TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'active', 'retired')),
-  -- agent_proposed is a valid value but nothing writes it this phase --
-  -- proactive capture is explicitly out of scope for Phase 1.
   source       TEXT NOT NULL CHECK (source IN ('human_seeded', 'human_asserted', 'agent_proposed')),
+  -- Added when 'agent_proposed' was activated (Resource Agent, see
+  -- docs/feedback/) -- same shape as semantic_memory.source_refs. Empty for
+  -- the human-submitted entries that predate this, which have no run/task to
+  -- point back to anyway.
+  source_refs  JSONB NOT NULL DEFAULT '[]'::jsonb,
   proposed_by  INTEGER REFERENCES users(id),
   reviewed_by  INTEGER REFERENCES users(id),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   reviewed_at  TIMESTAMPTZ
 );
+
+ALTER TABLE procedural_memory ADD COLUMN IF NOT EXISTS source_refs JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- 'proposed' and 'hypothesis' both exist on the status CHECK even though
 -- Phase 1 only ever produces 'proposed' (via the intake tool) and promotes
@@ -420,9 +425,34 @@ CREATE TABLE IF NOT EXISTS task_resource_requirements (
   -- qty/description choice, per the Resource Agent's planned "proactively
   -- seek out CFE-specific tendencies, cite general knowledge otherwise" loop.
   source_refs   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  -- false triggers review priority, not a block -- same convention as
+  -- task_dependencies.confident. Matters more here than for sequencing: a
+  -- quantity estimate is a continuous guess (soil type, access, weather),
+  -- not a discrete before/after judgment.
+  confident         BOOLEAN NOT NULL DEFAULT true,
+  uncertainty_note  TEXT NOT NULL DEFAULT '',
+  -- The arithmetic behind qty, when the estimate is genuinely rate-based
+  -- (labor/equipment: scope quantity ÷ productivity rate). Nullable -- not
+  -- every resource_type decomposes this way (a flat "other" item like a
+  -- permit fee has no rate to cite). Kept separate from qty/unit so a bad
+  -- estimate's root cause (bad rate assumption vs. bad scope assumption) is
+  -- distinguishable later, not just visible as a single wrong number.
+  basis_quantity      NUMERIC(12,2),
+  basis_quantity_unit TEXT,
+  basis_rate          NUMERIC(12,2),
+  basis_rate_unit     TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration for pre-existing databases: the CREATE TABLE above only takes
+-- effect on a fresh install.
+ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS confident BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS uncertainty_note TEXT NOT NULL DEFAULT '';
+ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS basis_quantity NUMERIC(12,2);
+ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS basis_quantity_unit TEXT;
+ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS basis_rate NUMERIC(12,2);
+ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS basis_rate_unit TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_task_resource_requirements_task_id ON task_resource_requirements(task_id);
 
@@ -437,3 +467,24 @@ CREATE TABLE IF NOT EXISTS work_order_line_item_tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_wo_line_item_tasks_task_id ON work_order_line_item_tasks(task_id);
+
+-- Resource Agent generation runs -- same shape/purpose as task_generation_runs,
+-- see that table's comment for the reasoning (async by design, dev-mode
+-- round trace, token ceiling as the real cost circuit breaker).
+CREATE TABLE IF NOT EXISTS resource_generation_runs (
+  id                   SERIAL PRIMARY KEY,
+  work_order_id        INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  status               TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'converged', 'stopped', 'error')),
+  rounds               JSONB NOT NULL DEFAULT '[]'::jsonb,
+  error_message        TEXT,
+  total_input_tokens   INTEGER NOT NULL DEFAULT 0,
+  total_output_tokens  INTEGER NOT NULL DEFAULT 0,
+  created_by           INTEGER REFERENCES users(id),
+  started_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at          TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resource_gen_one_running_per_wo
+  ON resource_generation_runs(work_order_id) WHERE status = 'running';
+
+CREATE INDEX IF NOT EXISTS idx_resource_gen_work_order_id ON resource_generation_runs(work_order_id);

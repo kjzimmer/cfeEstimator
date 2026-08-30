@@ -219,6 +219,207 @@ function AddResourceRequirementForm({ task, projectId, workOrderId, onAdded }) {
   );
 }
 
+// Full inline edit, unlike the add/remove-only dependency picker -- these
+// carry enough (basis, confidence, AI vs. human origin) that a human
+// correcting an AI estimate needs to see and adjust all of it. Editing an
+// AI-generated (resource_estimation) requirement is also how the "teach the
+// agent" loop happens: the server captures the correction as memory evidence
+// automatically on save, no separate step.
+function RequirementRow({ requirement, projectId, workOrderId, onUpdated, onDeleted }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  function startEdit() {
+    setDraft({
+      resourceType: requirement.resource_type,
+      description: requirement.description,
+      qty: requirement.qty,
+      unit: requirement.unit,
+      rationale: requirement.rationale,
+      confident: requirement.confident,
+      uncertaintyNote: requirement.uncertainty_note,
+      basisQuantity: requirement.basis_quantity ?? '',
+      basisQuantityUnit: requirement.basis_quantity_unit ?? '',
+      basisRate: requirement.basis_rate ?? '',
+      basisRateUnit: requirement.basis_rate_unit ?? '',
+    });
+    setEditing(true);
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const updated = await api.updateResourceRequirement(projectId, workOrderId, requirement.id, {
+        ...draft,
+        qty: Number(draft.qty) || 0,
+        basisQuantity: draft.basisQuantity === '' ? null : Number(draft.basisQuantity),
+        basisRate: draft.basisRate === '' ? null : Number(draft.basisRate),
+      });
+      onUpdated(updated);
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    try {
+      await api.deleteResourceRequirement(projectId, workOrderId, requirement.id);
+      onDeleted(requirement.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-1.5 p-2 rounded-md border border-border bg-surface flex flex-col gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
+          <select
+            value={draft.resourceType}
+            onChange={(e) => setDraft((d) => ({ ...d, resourceType: e.target.value }))}
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text"
+          >
+            {RESOURCE_TYPE_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {RESOURCE_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </select>
+          <input
+            value={draft.description}
+            onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text w-48"
+          />
+          <input
+            type="number"
+            step="0.01"
+            value={draft.qty}
+            onChange={(e) => setDraft((d) => ({ ...d, qty: e.target.value }))}
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text w-16"
+          />
+          <input
+            value={draft.unit}
+            onChange={(e) => setDraft((d) => ({ ...d, unit: e.target.value }))}
+            placeholder="unit"
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text w-14"
+          />
+        </div>
+        <input
+          value={draft.rationale}
+          onChange={(e) => setDraft((d) => ({ ...d, rationale: e.target.value }))}
+          placeholder="Rationale"
+          className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text"
+        />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-text-secondary">Basis:</span>
+          <input
+            type="number"
+            step="0.01"
+            value={draft.basisQuantity}
+            onChange={(e) => setDraft((d) => ({ ...d, basisQuantity: e.target.value }))}
+            placeholder="qty"
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text w-16"
+          />
+          <input
+            value={draft.basisQuantityUnit}
+            onChange={(e) => setDraft((d) => ({ ...d, basisQuantityUnit: e.target.value }))}
+            placeholder="unit"
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text w-14"
+          />
+          <span className="text-xs text-text-secondary">÷</span>
+          <input
+            type="number"
+            step="0.01"
+            value={draft.basisRate}
+            onChange={(e) => setDraft((d) => ({ ...d, basisRate: e.target.value }))}
+            placeholder="rate"
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text w-16"
+          />
+          <input
+            value={draft.basisRateUnit}
+            onChange={(e) => setDraft((d) => ({ ...d, basisRateUnit: e.target.value }))}
+            placeholder="unit"
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text w-20"
+          />
+        </div>
+        <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+          <input
+            type="checkbox"
+            checked={!draft.confident}
+            onChange={(e) => setDraft((d) => ({ ...d, confident: !e.target.checked }))}
+          />
+          Uncertain
+        </label>
+        {!draft.confident && (
+          <input
+            value={draft.uncertaintyNote}
+            onChange={(e) => setDraft((d) => ({ ...d, uncertaintyNote: e.target.value }))}
+            placeholder="What's uncertain"
+            className="text-xs rounded-md border border-border bg-bg px-1.5 py-1 text-text"
+          />
+        )}
+        <div>
+          <button onClick={save} disabled={busy} className="text-xs font-medium text-accent mr-2">
+            Save
+          </button>
+          <button onClick={() => setEditing(false)} className="text-xs font-medium text-text-secondary">
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const hasBasis = requirement.basis_quantity != null && requirement.basis_rate != null;
+
+  return (
+    <div
+      className={[
+        'mt-1.5 p-2 rounded-md border flex items-start justify-between gap-2',
+        requirement.confident === false ? 'border-amber-300 border-dashed bg-amber-50' : 'border-border bg-surface',
+      ].join(' ')}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-black/[0.05] text-text-secondary">
+            {RESOURCE_TYPE_LABELS[requirement.resource_type]}
+          </span>
+          <span className="text-xs text-text font-medium">{requirement.description}</span>
+          <span className="text-xs text-text-secondary font-mono">
+            {requirement.qty} {requirement.unit}
+          </span>
+          {requirement.created_via === 'resource_estimation' && (
+            <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-accent/10 text-accent">AI estimate</span>
+          )}
+          {requirement.confident === false && (
+            <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-amber-100 text-amber-800">uncertain</span>
+          )}
+        </div>
+        {hasBasis && (
+          <p className="text-xs text-text-secondary mt-0.5 font-mono">
+            basis: {requirement.basis_quantity} {requirement.basis_quantity_unit} ÷ {requirement.basis_rate} {requirement.basis_rate_unit}
+          </p>
+        )}
+        {requirement.rationale && <p className="text-xs text-text-secondary mt-0.5 italic">{requirement.rationale}</p>}
+        {requirement.confident === false && requirement.uncertainty_note && (
+          <p className="text-xs text-amber-800 mt-0.5">{requirement.uncertainty_note}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button onClick={startEdit} className="text-xs font-medium text-text-secondary hover:text-text">
+          Edit
+        </button>
+        <button onClick={remove} disabled={busy} className="text-xs font-medium text-red-600">
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TaskRow({ task, allTasks, requirements, projectId, workOrderId, onUpdated, onDeleted, onDepsChanged, onRequirementsChanged }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(null);
@@ -253,11 +454,6 @@ function TaskRow({ task, allTasks, requirements, projectId, workOrderId, onUpdat
   async function removeDependency(depId) {
     await api.deleteTaskDependency(projectId, workOrderId, task.id, depId);
     onDepsChanged(task.id, task.dependencies.filter((d) => d.id !== depId));
-  }
-
-  async function removeRequirement(reqId) {
-    await api.deleteResourceRequirement(projectId, workOrderId, reqId);
-    onRequirementsChanged(task.id, requirements.filter((r) => r.id !== reqId));
   }
 
   const byId = Object.fromEntries(allTasks.map((t) => [t.id, t]));
@@ -346,22 +542,16 @@ function TaskRow({ task, allTasks, requirements, projectId, workOrderId, onUpdat
               workOrderId={workOrderId}
               onAdded={(dep) => onDepsChanged(task.id, [...task.dependencies, dep])}
             />
-            {requirements.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {requirements.map((r) => (
-                  <span
-                    key={r.id}
-                    className="text-xs px-1.5 py-0.5 rounded bg-black/[0.04] text-text-secondary flex items-center gap-1"
-                    title={r.rationale || undefined}
-                  >
-                    {RESOURCE_TYPE_LABELS[r.resource_type]}: {r.description} — {r.qty} {r.unit}
-                    <button onClick={() => removeRequirement(r.id)} className="hover:text-red-600" title="Remove">
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+            {requirements.map((r) => (
+              <RequirementRow
+                key={r.id}
+                requirement={r}
+                projectId={projectId}
+                workOrderId={workOrderId}
+                onUpdated={(updated) => onRequirementsChanged(task.id, requirements.map((x) => (x.id === updated.id ? updated : x)))}
+                onDeleted={(id) => onRequirementsChanged(task.id, requirements.filter((x) => x.id !== id))}
+              />
+            ))}
             <AddResourceRequirementForm
               task={task}
               projectId={projectId}
@@ -398,6 +588,8 @@ export default function TasksPanel({ projectId }) {
   const [generatingLineItems, setGeneratingLineItems] = useState(false);
   const [lineItemsMsg, setLineItemsMsg] = useState('');
   const [lineItemsError, setLineItemsError] = useState('');
+  const [generatingResources, setGeneratingResources] = useState(false);
+  const [resourceGenError, setResourceGenError] = useState('');
 
   function refreshTasks(woId) {
     return Promise.all([api.listTasks(projectId, woId), api.listResourceRequirements(projectId, woId)]).then(
@@ -421,6 +613,8 @@ export default function TasksPanel({ projectId }) {
         // Pick up an in-progress generation if the page was reloaded mid-run.
         const run = await api.getTaskGenerationStatus(projectId, woId);
         if (!cancelled && run?.status === 'running') setGenerating(true);
+        const resourceRun = await api.getResourceRequirementGenerationStatus(projectId, woId);
+        if (!cancelled && resourceRun?.status === 'running') setGeneratingResources(true);
       })
       .catch((err) => !cancelled && setError(err.message));
     return () => {
@@ -465,6 +659,43 @@ export default function TasksPanel({ projectId }) {
       setGenerating(true);
     } catch (err) {
       setGenError(err.message);
+    }
+  }
+
+  // Same opaque-background-process pattern as task generation above.
+  useEffect(() => {
+    if (!generatingResources || !workOrderId) return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      try {
+        const run = await api.getResourceRequirementGenerationStatus(projectId, workOrderId);
+        if (cancelled) return;
+        if (run && run.status !== 'running') {
+          setGeneratingResources(false);
+          if (run.status === 'error') setResourceGenError(run.error_message || 'Resource requirement generation failed.');
+          await refreshTasks(workOrderId);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setGeneratingResources(false);
+          setResourceGenError(err.message);
+        }
+      }
+    }, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generatingResources, workOrderId]);
+
+  async function handleGenerateResources() {
+    setResourceGenError('');
+    try {
+      await api.generateResourceRequirements(projectId, workOrderId);
+      setGeneratingResources(true);
+    } catch (err) {
+      setResourceGenError(err.message);
     }
   }
 
@@ -596,6 +827,21 @@ export default function TasksPanel({ projectId }) {
             {tasks.length > 0 && draftCount === 0 && (
               <div className="pt-2 border-t border-border flex items-center gap-3 flex-wrap">
                 <button
+                  onClick={handleGenerateResources}
+                  disabled={generatingResources}
+                  className="text-sm font-medium px-3 py-1.5 rounded-md border border-accent text-accent hover:bg-accent/10 disabled:opacity-60 transition-colors w-fit"
+                >
+                  {generatingResources ? 'Estimating resources…' : 'Generate Resource Requirements'}
+                </button>
+                {generatingResources && (
+                  <span className="text-xs text-text-secondary">This can take a minute or two.</span>
+                )}
+                {resourceGenError && <span className="text-xs text-red-600">{resourceGenError}</span>}
+              </div>
+            )}
+            {tasks.length > 0 && draftCount === 0 && (
+              <div className="pt-2 border-t border-border flex items-center gap-3 flex-wrap">
+                <button
                   onClick={handleGenerateLineItems}
                   disabled={generatingLineItems || requirements.length === 0}
                   className="text-sm font-medium px-4 py-2 rounded-md bg-accent hover:bg-accent-hover disabled:opacity-50 text-white transition-colors w-fit"
@@ -604,7 +850,7 @@ export default function TasksPanel({ projectId }) {
                 </button>
                 {requirements.length === 0 && (
                   <span className="text-xs text-text-secondary">
-                    Add resource requirements to each task above first.
+                    Add resource requirements to each task above first, or use "Generate Resource Requirements" above.
                   </span>
                 )}
                 {lineItemsMsg && <span className="text-xs text-text-secondary">{lineItemsMsg}</span>}

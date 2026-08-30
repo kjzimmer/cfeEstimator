@@ -136,6 +136,10 @@ export const api = {
     request(`/projects/${projectId}/work-orders/${woId}/resource-requirements/generate-line-items`, {
       method: 'POST',
     }),
+  generateResourceRequirements: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/resource-requirements/generate`, { method: 'POST' }),
+  getResourceRequirementGenerationStatus: (projectId, woId) =>
+    request(`/projects/${projectId}/work-orders/${woId}/resource-requirements/generation-status`),
 
   listUsers: () => request('/users'),
   createUser: (payload) => request('/users', { method: 'POST', body: payload }),

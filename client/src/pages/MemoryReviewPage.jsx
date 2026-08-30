@@ -3,6 +3,24 @@ import { api } from '../lib/api.js';
 
 const TYPE_LABELS = { procedural: 'Procedural', semantic: 'Semantic' };
 
+// source_refs holds a mix of shapes across the app: plain strings (the
+// original human-intake citation, e.g. "Alex Admin stated... in X project")
+// and typed objects (e.g. { type: 'task_resource_requirement', id: 23 }, the
+// shape tasks/resource requirements already use for citations). Format both
+// rather than assuming one -- an un-formatted object renders as
+// "[object Object]", which is what surfaced this in the first place.
+function formatSourceRef(ref) {
+  if (typeof ref === 'string') return ref;
+  if (ref && typeof ref === 'object') {
+    const { type, id, ...rest } = ref;
+    const extra = Object.entries(rest)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(', ');
+    return [type, id != null ? `#${id}` : null, extra || null].filter(Boolean).join(' ');
+  }
+  return String(ref);
+}
+
 function TypeBadge({ type }) {
   return (
     <span
@@ -20,7 +38,7 @@ function ProposalRow({ proposal, onReviewed }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const text = proposal.type === 'procedural' ? proposal.instruction : proposal.content;
-  const sourceRefs = proposal.type === 'semantic' ? proposal.source_refs : null;
+  const sourceRefs = proposal.source_refs;
 
   async function review(decision) {
     setBusy(true);
@@ -41,7 +59,7 @@ function ProposalRow({ proposal, onReviewed }) {
           <TypeBadge type={proposal.type} />
           <p className="text-sm text-text whitespace-pre-wrap">{text}</p>
           {sourceRefs?.length > 0 && (
-            <p className="text-xs text-text-secondary mt-1">Source: {sourceRefs.join('; ')}</p>
+            <p className="text-xs text-text-secondary mt-1">Source: {sourceRefs.map(formatSourceRef).join('; ')}</p>
           )}
           <p className="text-xs text-text-secondary mt-1">
             Proposed {new Date(proposal.created_at).toLocaleString()}
@@ -69,19 +87,24 @@ function ProposalRow({ proposal, onReviewed }) {
   );
 }
 
-const SOURCE_LABELS = { human_seeded: 'seeded', human_asserted: 'human-asserted', agent_inferred: 'agent-inferred' };
+const SOURCE_LABELS = {
+  human_seeded: 'seeded',
+  human_asserted: 'human-asserted',
+  agent_inferred: 'agent-inferred',
+  agent_proposed: 'agent-proposed',
+};
 
 function ActiveRow({ entry }) {
   const text = entry.type === 'procedural' ? entry.instruction : entry.content;
   const sourceOrOrigin = entry.type === 'procedural' ? entry.source : entry.origin;
-  const sourceRefs = entry.type === 'semantic' ? entry.source_refs : null;
+  const sourceRefs = entry.source_refs;
 
   return (
     <div className="px-4 py-3 border-b border-border last:border-b-0">
       <TypeBadge type={entry.type} />
       <p className="text-sm text-text whitespace-pre-wrap">{text}</p>
       {sourceRefs?.length > 0 && (
-        <p className="text-xs text-text-secondary mt-1">Source: {sourceRefs.join('; ')}</p>
+        <p className="text-xs text-text-secondary mt-1">Source: {sourceRefs.map(formatSourceRef).join('; ')}</p>
       )}
       <p className="text-xs text-text-secondary mt-1">
         {SOURCE_LABELS[sourceOrOrigin] || sourceOrOrigin}
