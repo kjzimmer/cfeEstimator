@@ -85,6 +85,45 @@ export async function findRequirementByDescription(taskId, description) {
   return rows[0] || null;
 }
 
+// The Resource Agent's own revision path for a rerun reconciling against
+// existing requirements -- deliberately separate from the human-facing
+// updateRequirement(): does NOT set human_reviewed (the agent revising its
+// own prior estimate isn't a human weighing in) and does NOT trigger
+// memoryService.recordResourceCorrection (that's specifically for capturing
+// a *human's* correction as teaching signal; an agent updating itself isn't
+// evidence of a CFE-specific tendency). The row's current rationale/basis
+// stay the single source of truth either way -- no separate revision
+// history beyond what the generation run's own round trace already keeps.
+export async function reviseGeneratedRequirement(
+  requirementId,
+  {
+    resourceType,
+    description,
+    qty,
+    unit,
+    rationale,
+    confident = true,
+    uncertaintyNote = '',
+    basisQuantity = null,
+    basisQuantityUnit = null,
+    basisRate = null,
+    basisRateUnit = null,
+    sourceRefs = [],
+  }
+) {
+  const { rows } = await pool.query(
+    `UPDATE task_resource_requirements
+     SET resource_type = $2, description = $3, qty = $4, unit = $5, rationale = $6,
+         confident = $7, uncertainty_note = $8,
+         basis_quantity = $9, basis_quantity_unit = $10, basis_rate = $11, basis_rate_unit = $12,
+         source_refs = $13::jsonb, updated_at = now()
+     WHERE id = $1
+     RETURNING *`,
+    [requirementId, resourceType, description, qty, unit, rationale, confident, uncertaintyNote, basisQuantity, basisQuantityUnit, basisRate, basisRateUnit, JSON.stringify(sourceRefs)]
+  );
+  return rows[0] || null;
+}
+
 // The "teach the agent" hook lives here, not in the route -- editing a
 // requirement always goes through this function, so a correction to an
 // AI-generated estimate gets captured as memory evidence no matter which
@@ -103,7 +142,7 @@ export async function updateRequirement(
      SET resource_type = $2, description = $3, qty = $4, unit = $5, rationale = $6,
          confident = $7, uncertainty_note = $8,
          basis_quantity = $9, basis_quantity_unit = $10, basis_rate = $11, basis_rate_unit = $12,
-         updated_at = now()
+         human_reviewed = true, updated_at = now()
      WHERE id = $1
      RETURNING *`,
     [

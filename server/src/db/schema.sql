@@ -441,6 +441,14 @@ CREATE TABLE IF NOT EXISTS task_resource_requirements (
   basis_quantity_unit TEXT,
   basis_rate          NUMERIC(12,2),
   basis_rate_unit     TEXT,
+  -- Set only by a human editing this requirement (resourceRequirementService.
+  -- updateRequirement) -- never by the Resource Agent revising its own prior
+  -- estimate on a rerun. Lets a rerun's reconciliation pass give real
+  -- deference to a human's reasoning: only override it with a clearly
+  -- stated reason tied to actual new information, not a second guess. Never
+  -- auto-reset once true -- "a human weighed in here" stays true even if the
+  -- agent later revises the value again for a stated reason.
+  human_reviewed BOOLEAN NOT NULL DEFAULT false,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -453,6 +461,7 @@ ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS basis_quantity N
 ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS basis_quantity_unit TEXT;
 ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS basis_rate NUMERIC(12,2);
 ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS basis_rate_unit TEXT;
+ALTER TABLE task_resource_requirements ADD COLUMN IF NOT EXISTS human_reviewed BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_task_resource_requirements_task_id ON task_resource_requirements(task_id);
 

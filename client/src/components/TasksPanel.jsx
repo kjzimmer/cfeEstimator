@@ -394,6 +394,14 @@ function RequirementRow({ requirement, projectId, workOrderId, onUpdated, onDele
           {requirement.created_via === 'resource_estimation' && (
             <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-accent/10 text-accent">AI estimate</span>
           )}
+          {requirement.human_reviewed && (
+            <span
+              className="text-[10px] font-medium px-1 py-0.5 rounded bg-black/[0.08] text-text"
+              title="A human has reviewed/corrected this -- a rerun will only revise it with a clearly stated new reason"
+            >
+              human-reviewed
+            </span>
+          )}
           {requirement.confident === false && (
             <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-amber-100 text-amber-800">uncertain</span>
           )}
