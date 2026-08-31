@@ -109,6 +109,29 @@ const UPDATE_RESOURCE_REQUIREMENT_TOOL = {
   },
 };
 
+const FLAG_UNRESOLVED_RESOURCE_TOOL = {
+  name: 'flag_unresolved_resource',
+  description:
+    'Use when you genuinely cannot determine what a task needs, instead of silently leaving it with nothing. ' +
+    'A live run showed the failure mode this exists to close: the model skipped several tasks with no resource ' +
+    'and no explanation at all, indistinguishable from an oversight. Call this for a task you\'ve considered and ' +
+    'concluded you lack the information to size -- every task must get either a real resource, a revision ' +
+    'decision, or this flag; never silence. This creates a visible, editable placeholder a human can resolve ' +
+    'later (through the project conversation, not a form) -- once resolved it feeds back into future estimates ' +
+    'the same way any other correction does.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      taskName: { type: 'string', description: 'Exact name of the task you cannot size' },
+      reason: {
+        type: 'string',
+        description: 'Specifically what information is missing and why you cannot reasonably assume it -- this is what a human will see and needs to answer',
+      },
+    },
+    required: ['taskName', 'reason'],
+  },
+};
+
 const PROPOSE_PROCESS_IMPROVEMENT_TOOL = {
   name: 'propose_process_improvement',
   description:
@@ -173,7 +196,8 @@ async function gatherContext(workOrderId) {
                 })
                 .join('\n')
             : '    (none yet)';
-          return `- ${t.name}${t.description ? `: ${t.description}` : ''}\n${reqsText}`;
+          const party = t.responsible_party !== 'CFE' ? ` [responsible party: ${t.responsible_party}]` : '';
+          return `- ${t.name}${party}${t.description ? `: ${t.description}` : ''}\n${reqsText}`;
         })
         .join('\n')
     : '(no approved tasks)';
@@ -208,8 +232,9 @@ For every task above:
 - If it has no existing requirements ("(none yet)"), call add_resource_requirement for each resource it genuinely needs.
 - If it already has existing requirements, review each against the current project context and semantic memory. If it still holds, leave it alone -- doing nothing is the correct action, not a missed step. Only call update_resource_requirement when there's a real reason tied to new or different information, and say what that reason is in the revised rationale. Never call add_resource_requirement to duplicate something a task already has.
 - Give real deference to anything marked HUMAN-REVIEWED -- a human has already reasoned through that one. Only revise it with a clearly stated reason tied to genuinely new information, never because you'd have guessed differently yourself.
+- A task tagged "[responsible party: owner]" or "[responsible party: third_party]" means the *substantive work* belongs to them, not CFE -- never add a resource that describes CFE performing that work (filing their paperwork, paying for their inspection, doing their survey). But CFE still very often spends real time coordinating, tracking, or following up on someone else's task -- when that's genuinely true, add a CFE labor resource for that coordination specifically, described and reasoned as coordination (e.g. "confirm receipt," "follow up on status"), never as if CFE were doing the underlying work itself.
 
-You must consider every task before finishing, not just the ones with nothing yet -- "consider" can mean concluding no change is needed, which takes no tool call.
+You must account for every task before finishing -- no exceptions, and no silent omissions. For each one, either: leave existing requirements as correctly unchanged, add/revise a real resource, or call flag_unresolved_resource if you genuinely cannot size it. A task ending up with nothing and no explanation is exactly the failure this process must not produce.
 
 - Decompose the basis whenever the estimate is rate-based (labor/equipment hours especially): state the scope quantity you're anchoring to (basisQuantity/basisQuantityUnit) and the productivity/coverage rate you applied (basisRate/basisRateUnit), so qty = basisQuantity / basisRate is checkable later. Not every resource decomposes this way -- a flat item (e.g. a permit fee) doesn't need basis fields.
 - Prefer a rate you can trace: if semantic memory above has a relevant CFE-specific tendency, use it and cite it via semanticMemoryId. Otherwise use general construction estimating knowledge and say so plainly in the rationale -- never imply a CFE-specific basis that doesn't exist.
@@ -374,6 +399,31 @@ async function runPhase({ runId, phase, system, initialMessage, tools, taskByNam
             tool_use_id: toolUse.id,
             content: `Revised requirement ${requirementId} ("${description}").`,
           });
+        } else if (toolUse.name === 'flag_unresolved_resource') {
+          const { taskName, reason } = toolUse.input;
+          const task = taskByName.get(taskName.toLowerCase());
+          if (!task) throw new Error(`Unknown task name: "${taskName}"`);
+          // Same table/shape as a real requirement (confident: false +
+          // uncertainty_note, already-built infrastructure) rather than a new
+          // concept -- shows up in the Tasks UI exactly where a human is
+          // already looking, and resolving it later is just an edit, which
+          // already triggers the correction/evidence-capture pipeline.
+          const flagged = await resourceRequirementService.createGeneratedRequirement(task.id, {
+            resourceType: 'other',
+            description: 'Unresolved -- needs input',
+            qty: 0,
+            unit: '',
+            rationale: reason,
+            confident: false,
+            uncertaintyNote: reason,
+            sourceRefs: [],
+          });
+          roundToolCalls.push({ name: 'flag_unresolved_resource', input: toolUse.input, result: `flagged as requirement #${flagged.id}` });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: `Flagged "${taskName}" as unresolved (id ${flagged.id}) for human review.`,
+          });
         } else if (toolUse.name === 'propose_process_improvement') {
           const { instruction } = toolUse.input;
           const proposal = await memoryService.proposeFromAgent({
@@ -454,7 +504,7 @@ async function executeGeneration(runId, workOrderId) {
     phase: 'estimate',
     system: baseSystem,
     initialMessage: 'Reconcile resource requirements for every approved task now -- add what\'s missing, revise what needs it, leave the rest.',
-    tools: [ADD_RESOURCE_REQUIREMENT_TOOL, UPDATE_RESOURCE_REQUIREMENT_TOOL, PROPOSE_PROCESS_IMPROVEMENT_TOOL],
+    tools: [ADD_RESOURCE_REQUIREMENT_TOOL, UPDATE_RESOURCE_REQUIREMENT_TOOL, FLAG_UNRESOLVED_RESOURCE_TOOL, PROPOSE_PROCESS_IMPROVEMENT_TOOL],
     taskByName,
     existingReqById,
     roundOffset: 0,
@@ -483,7 +533,7 @@ async function executeGeneration(runId, workOrderId) {
       phase: 'repair-missing',
       system: buildRepairSystemPrompt(buildEstimateSystemPrompt(freshContext), missingListText),
       initialMessage: 'Add resource requirements for the missing tasks now.',
-      tools: [ADD_RESOURCE_REQUIREMENT_TOOL],
+      tools: [ADD_RESOURCE_REQUIREMENT_TOOL, FLAG_UNRESOLVED_RESOURCE_TOOL],
       taskByName,
       existingReqById: freshExistingReqById,
       roundOffset: estimateRounds,
@@ -500,10 +550,30 @@ async function executeGeneration(runId, workOrderId) {
   }
 
   if (missing.length > 0) {
+    // Structural fallback, not another prompted attempt -- a real run showed
+    // the model has flag_unresolved_resource available and is explicitly
+    // told to use it for exactly this case, and still just silently left
+    // tasks with nothing at all, with zero explanation, identically to
+    // before the tool existed. Asking nicer didn't change the outcome, so
+    // the code creates the flag itself rather than trusting a third prompted
+    // attempt to work where two didn't. Every task ends up with something
+    // visible either way -- this just guarantees it instead of hoping.
+    for (const task of missing) {
+      await resourceRequirementService.createGeneratedRequirement(task.id, {
+        resourceType: 'other',
+        description: 'Unresolved -- needs input',
+        qty: 0,
+        unit: '',
+        rationale: 'The Resource Agent could not determine what this task needs after two attempts.',
+        confident: false,
+        uncertaintyNote: 'No resource could be estimated for this task -- needs a human answer (via the project conversation) on what it actually requires.',
+        sourceRefs: [],
+      });
+    }
     await finishRun(
       runId,
       'stopped',
-      `${missing.length} approved task(s) still have no resource requirement after a repair attempt -- review and add manually: ${missing.map((t) => t.name).join(', ')}`
+      `${missing.length} approved task(s) could not be estimated and were flagged for human input: ${missing.map((t) => t.name).join(', ')}`
     );
     return;
   }

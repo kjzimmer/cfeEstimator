@@ -6,6 +6,8 @@ import * as storage from '../services/storage.js';
 import * as rateCardService from '../services/rateCardService.js';
 import * as workOrderService from '../services/workOrderService.js';
 import * as memoryService from '../services/memoryService.js';
+import * as taskService from '../services/taskService.js';
+import * as resourceRequirementService from '../services/resourceRequirementService.js';
 
 const RATE_CARD_KEYS = ['service_rates', 'material_costs', 'equipment_rates', 'employee_role_rates'];
 
@@ -123,6 +125,33 @@ const TOOLS = [
       required: ['type', 'content'],
     },
   },
+  {
+    name: 'resolve_resource_requirement',
+    description:
+      'Update a resource requirement based on what the human just told you in conversation -- most often ' +
+      'answering one of the open resource questions listed in your context below, but usable for any ' +
+      'correction to a resource requirement grounded in what the human actually said. This is how these get ' +
+      'resolved: the human tells you the answer here in chat, you make the entry -- never tell them to go edit ' +
+      'the Tasks tab themselves. Reflect what they actually said in the rationale; don\'t invent additional ' +
+      'reasoning they didn\'t give you.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        requirementId: { type: 'integer', description: 'The id from the open resource questions list, or another requirement the human is correcting' },
+        resourceType: { type: 'string', enum: ['labor', 'material', 'equipment', 'other'] },
+        description: { type: 'string' },
+        qty: { type: 'number' },
+        unit: { type: 'string', description: 'A real, measurable unit, e.g. hr, day, CY, ton, ea -- never a vague placeholder like "job"' },
+        rationale: { type: 'string', description: "Reflect what the human actually told you -- required" },
+        confident: { type: 'boolean', description: 'Default true -- the human just resolved it' },
+        basisQuantity: { type: 'number' },
+        basisQuantityUnit: { type: 'string' },
+        basisRate: { type: 'number' },
+        basisRateUnit: { type: 'string' },
+      },
+      required: ['requirementId', 'resourceType', 'description', 'qty', 'unit', 'rationale'],
+    },
+  },
 ];
 
 async function buildFileContext(projectId) {
@@ -150,6 +179,28 @@ async function buildRateCardContext() {
       : '(none configured yet)';
     return `### ${RATE_CARD_TITLES[key]} (rateCardType: "${key}")\n${lines}`;
   }).join('\n\n');
+}
+
+// Surfaces resource_estimation requirements the Resource Agent flagged
+// confident: false (including ones it couldn't determine at all, via
+// flag_unresolved_resource) so a human can resolve them right here in
+// conversation -- the app's normal way data enters -- rather than editing
+// the Tasks tab form directly. resolve_resource_requirement is how the
+// answer actually gets written; this context is what makes the agent aware
+// there's something to resolve in the first place.
+async function buildOpenResourceQuestionsContext(projectId) {
+  const draft = await workOrderService.getCurrentDraft(projectId);
+  if (!draft) return '(no draft work order yet)';
+  const [requirements, tasks] = await Promise.all([
+    resourceRequirementService.listRequirements(draft.id),
+    taskService.listTasks(draft.id),
+  ]);
+  const open = requirements.filter((r) => r.confident === false);
+  if (open.length === 0) return '(none currently open)';
+  const taskNameById = new Map(tasks.map((t) => [t.id, t.name]));
+  return open
+    .map((r) => `- [id ${r.id}] Task "${taskNameById.get(r.task_id) || 'unknown'}": ${r.uncertainty_note || r.rationale}`)
+    .join('\n');
 }
 
 async function buildWorkOrderContext(projectId) {
@@ -185,7 +236,7 @@ async function buildMemoryContext() {
   return `### Behavioral rules (procedural)\n${proceduralLines}\n\n### Domain knowledge (semantic)\n${semanticLines}`;
 }
 
-function buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext) {
+function buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext, openResourceQuestionsContext) {
   const companyContext = companySections
     .map((s) => `### ${s.title}\n${s.content || '(not yet configured)'}`)
     .join('\n\n');
@@ -199,6 +250,11 @@ function buildSystemPrompt(companySections, rateCardContext, project, workOrderC
 Use the update_project_component tool proactively whenever you learn something concrete -- don't wait to be asked. Use draft_work_order once scope and quantities are clear enough to price, and again whenever they change -- a human still has to review and click "Generate Work Order" before anything goes to the customer, so draft early and revise freely rather than waiting for certainty. Keep your chat replies conversational and short; put structured detail into components and the draft work order, not into the chat reply.
 
 If a human explicitly asks you to remember something (they say "remember..." or clearly ask you to retain a rule or fact for the future), use propose_memory_entry per its own instructions -- this only logs a proposal for admin review, it doesn't take effect immediately, so tell them that's what happened. Never call it unless they explicitly asked you to remember something; don't proactively propose memories from an ordinary correction.
+
+The Resource Agent (a separate background process) sometimes can't determine what a task needs and flags it, listed below under "Open resource questions." If the human's message answers one of these -- or corrects a resource requirement more generally -- call resolve_resource_requirement with the real values, reflecting what they actually said in the rationale. This is the only way these get resolved; never tell a human to go edit the Tasks tab themselves, the conversation is how data enters this system.
+
+## Open resource questions (from the Resource Agent, awaiting your answer)
+${openResourceQuestionsContext}
 
 ## Things you already know (Agent Memory -- admin-reviewed, applies company-wide)
 ${memoryContext}
@@ -246,17 +302,18 @@ function toAnthropicMessages(messages) {
 }
 
 export async function runAgentTurn(projectId, triggeredByUserId = null) {
-  const [companySections, project, threadMessages, rateCardContext, workOrderContext, memoryContext] = await Promise.all([
+  const [companySections, project, threadMessages, rateCardContext, workOrderContext, memoryContext, openResourceQuestionsContext] = await Promise.all([
     listSections(),
     projectService.getProject(projectId),
     messageService.listMessages(projectId),
     buildRateCardContext(),
     buildWorkOrderContext(projectId),
     buildMemoryContext(),
+    buildOpenResourceQuestionsContext(projectId),
   ]);
 
   const fileContext = await buildFileContext(projectId);
-  const system = buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext);
+  const system = buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext, openResourceQuestionsContext);
   const messages = toAnthropicMessages(threadMessages);
 
   let finalText = '';
@@ -341,6 +398,37 @@ export async function runAgentTurn(projectId, triggeredByUserId = null) {
             type: 'tool_result',
             tool_use_id: toolUse.id,
             content: `Logged as a ${type} memory proposal (id ${entry.id}), pending admin review.`,
+          });
+        } else if (toolUse.name === 'resolve_resource_requirement') {
+          const { requirementId, resourceType, description, qty, unit, rationale, confident, basisQuantity, basisQuantityUnit, basisRate, basisRateUnit } = toolUse.input;
+          // Scope check: only resolve a requirement that actually belongs to
+          // this project's draft work order, not an arbitrary id.
+          const draft = await workOrderService.getCurrentDraft(projectId);
+          const belongsHere = draft && (await resourceRequirementService.listRequirements(draft.id)).some((r) => r.id === requirementId);
+          if (!belongsHere) throw new Error(`Requirement ${requirementId} isn't part of this project's draft work order`);
+          // The human-facing path, not the agent-facing one -- this is
+          // fundamentally the human's answer, just entered via conversation
+          // instead of the Tasks tab form, so it sets human_reviewed and
+          // triggers the same correction-evidence capture any other human
+          // edit does.
+          const updated = await resourceRequirementService.updateRequirement(requirementId, {
+            resourceType,
+            description,
+            qty,
+            unit,
+            rationale,
+            confident: confident ?? true,
+            uncertaintyNote: '',
+            basisQuantity,
+            basisQuantityUnit,
+            basisRate,
+            basisRateUnit,
+          });
+          if (!updated) throw new Error(`Unknown resource requirement id: ${requirementId}`);
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: `Resolved requirement ${requirementId} ("${description}").`,
           });
         }
       } catch (err) {

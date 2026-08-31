@@ -160,9 +160,10 @@ export async function recordResourceCorrection({ requirement, corrected }) {
   // honestly weaker) placeholder when no reasoning was given, rather than
   // inventing logic that wasn't actually stated.
   const hasReasoning = corrected.rationale && corrected.rationale.trim().length > 0;
+  const fmt = (qty, unit) => `${qty}${unit ? ` ${unit}` : ''}`;
   const content = hasReasoning
-    ? `For "${corrected.description}": ${corrected.rationale.trim()} (corrected from an AI estimate of ${requirement.qty} ${requirement.unit} to ${corrected.qty} ${corrected.unit}.)`
-    : `A human corrected an AI-estimated resource requirement for "${requirement.description}" (${requirement.qty} ${requirement.unit} -> ${corrected.qty} ${corrected.unit}) without stating a reason -- the corrected value alone isn't a confirmed tendency, just a data point.`;
+    ? `For "${corrected.description}": ${corrected.rationale.trim()} (corrected from an AI estimate of ${fmt(requirement.qty, requirement.unit)} to ${fmt(corrected.qty, corrected.unit)}.)`
+    : `A human corrected an AI-estimated resource requirement for "${requirement.description}" (${fmt(requirement.qty, requirement.unit)} -> ${fmt(corrected.qty, corrected.unit)}) without stating a reason -- the corrected value alone isn't a confirmed tendency, just a data point.`;
 
   const { rows } = await pool.query(
     `INSERT INTO semantic_memory (content, status, origin, source_refs, evidence)
