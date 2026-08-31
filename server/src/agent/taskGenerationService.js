@@ -18,6 +18,8 @@ import * as messageService from '../services/messageService.js';
 import * as workOrderService from '../services/workOrderService.js';
 import * as taskService from '../services/taskService.js';
 import * as storage from '../services/storage.js';
+import * as companyIdentityService from '../services/companyIdentityService.js';
+import * as memoryService from '../services/memoryService.js';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-5';
@@ -103,10 +105,12 @@ const ADD_DEPENDENCY_TOOL = {
 // Project Agent's own distilled extraction of job facts and doesn't carry
 // that downstream commentary, so it's the right input on its own.
 export async function buildProjectContext(projectId, { includeConversation = true } = {}) {
-  const [project, messages, files] = await Promise.all([
+  const [project, messages, files, companyIdentity, proceduralMemory] = await Promise.all([
     projectService.getProject(projectId),
     includeConversation ? messageService.listMessages(projectId) : Promise.resolve([]),
     storage.list(projectId),
+    companyIdentityService.getIdentity(),
+    memoryService.listActiveProcedural(),
   ]);
 
   const definitionContext =
@@ -126,7 +130,23 @@ export async function buildProjectContext(projectId, { includeConversation = tru
     ? files.map((f) => `- ${f.filename}`).join('\n')
     : '(no files uploaded)';
 
+  // Neither address was reachable by any agent before this -- see
+  // docs/feedback/. Both are needed to derive travel distance, which the
+  // seeded procedural rule below already expects to be possible.
+  const proceduralContext = proceduralMemory.length
+    ? proceduralMemory.map((p) => `- ${p.instruction}`).join('\n')
+    : '(none recorded)';
+
   return `## Project: ${project.name} (customer: ${project.customer_name || 'unspecified'})
+
+## CFE's own address (for distance/mobilization reasoning -- derive distance from this and the customer/site address below rather than asking, per company convention)
+${companyIdentity?.address || '(not set in Company Info)'}
+
+## Customer's address on file (usually the work site for these jobs, unless the project definition's own "location" component below states a different site)
+${project.customer_address || '(not set on the customer record)'}
+
+## Company behavioral conventions (procedural memory -- apply these with judgment, not as rigid rules)
+${proceduralContext}
 
 ## Project definition
 ${definitionContext}

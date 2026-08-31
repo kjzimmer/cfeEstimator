@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { listSections } from '../services/companyInfoService.js';
+import * as companyIdentityService from '../services/companyIdentityService.js';
 import * as projectService from '../services/projectService.js';
 import * as messageService from '../services/messageService.js';
 import * as storage from '../services/storage.js';
@@ -236,7 +237,7 @@ async function buildMemoryContext() {
   return `### Behavioral rules (procedural)\n${proceduralLines}\n\n### Domain knowledge (semantic)\n${semanticLines}`;
 }
 
-function buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext, openResourceQuestionsContext) {
+function buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext, openResourceQuestionsContext, companyIdentity) {
   const companyContext = companySections
     .map((s) => `### ${s.title}\n${s.content || '(not yet configured)'}`)
     .join('\n\n');
@@ -262,10 +263,15 @@ ${memoryContext}
 ## Company context
 ${companyContext}
 
+## CFE's own address (derive travel distance from this and the customer's address below rather than asking -- see the procedural rule above about that)
+${companyIdentity?.address || '(not set in Company Info)'}
+
 ## Rate cards (use these names verbatim in draft_work_order's rateCardItemName)
 ${rateCardContext}
 
 ## Current project: ${project.name} (customer: ${project.customer_name || 'unspecified'})
+## Customer's address on file (usually the work site for these jobs, unless told otherwise)
+${project.customer_address || '(not set on the customer record)'}
 ## Current project definition
 ${definitionContext}
 
@@ -302,7 +308,7 @@ function toAnthropicMessages(messages) {
 }
 
 export async function runAgentTurn(projectId, triggeredByUserId = null) {
-  const [companySections, project, threadMessages, rateCardContext, workOrderContext, memoryContext, openResourceQuestionsContext] = await Promise.all([
+  const [companySections, project, threadMessages, rateCardContext, workOrderContext, memoryContext, openResourceQuestionsContext, companyIdentity] = await Promise.all([
     listSections(),
     projectService.getProject(projectId),
     messageService.listMessages(projectId),
@@ -310,10 +316,11 @@ export async function runAgentTurn(projectId, triggeredByUserId = null) {
     buildWorkOrderContext(projectId),
     buildMemoryContext(),
     buildOpenResourceQuestionsContext(projectId),
+    companyIdentityService.getIdentity(),
   ]);
 
   const fileContext = await buildFileContext(projectId);
-  const system = buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext, openResourceQuestionsContext);
+  const system = buildSystemPrompt(companySections, rateCardContext, project, workOrderContext, fileContext, memoryContext, openResourceQuestionsContext, companyIdentity);
   const messages = toAnthropicMessages(threadMessages);
 
   let finalText = '';

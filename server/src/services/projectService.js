@@ -1,10 +1,16 @@
 import { pool } from '../db/pool.js';
 
-// customer_name is joined in for display convenience -- the Customers CRUD
-// UI (docs/requirements/customers.md) isn't built yet, so this keeps project
-// list/detail views showing a customer without every caller needing its own join.
+// customer_name/customer_address are joined in for display and agent-context
+// convenience -- the Customers CRUD UI (docs/requirements/customers.md) isn't
+// built yet, so this keeps callers from needing their own join. customer_address
+// is the customer's address on file, which for most of these jobs *is* the
+// work site -- see docs/feedback/: no agent had this at all before, which is
+// why "derive distance instead of asking" (an existing seeded procedural
+// rule) was never actually satisfiable. The project's own `location`
+// definition component, once a human states it, is the more specific/
+// authoritative site address if it differs from the customer's address on file.
 const SELECT_WITH_CUSTOMER = `
-  SELECT p.*, c.name AS customer_name
+  SELECT p.*, c.name AS customer_name, c.address AS customer_address
   FROM projects p
   LEFT JOIN customers c ON c.id = p.customer_id
 `;
