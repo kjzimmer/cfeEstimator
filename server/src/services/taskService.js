@@ -106,6 +106,16 @@ async function wouldCreateCycle(taskId, dependsOnTaskId) {
 }
 
 export async function addDependency(taskId, dependsOnTaskId, { basis = 'human_added', confident = true, uncertaintyNote = '' } = {}) {
+  // Idempotent rather than erroring or duplicating -- a reconciliation pass
+  // (the Task Agent rechecking dependencies against current state) will
+  // legitimately re-propose an edge that's already there; that should be a
+  // silent no-op, not a second identical row.
+  const { rows: existingRows } = await pool.query(
+    'SELECT * FROM task_dependencies WHERE task_id = $1 AND depends_on_task_id = $2',
+    [taskId, dependsOnTaskId]
+  );
+  if (existingRows[0]) return existingRows[0];
+
   if (await wouldCreateCycle(taskId, dependsOnTaskId)) {
     throw new Error('That would create a circular dependency');
   }

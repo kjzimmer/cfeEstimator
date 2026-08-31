@@ -139,18 +139,51 @@ ${fileContext}
 (Filenames only -- file contents aren't extracted yet.)`;
 }
 
-function buildDraftSystemPrompt(projectContext) {
-  return `You are decomposing an excavation/site-work job into a work breakdown of discrete tasks (sequencing comes in a later step -- just focus on drafting a complete task list now). Draft tasks from everything in the project context below -- the scope of work, conversation, site visit notes, customer/location info. Call add_task for each (createdVia: sow_extraction). Don't invent tasks the job doesn't need, but don't omit real ones either, including ones CFE doesn't itself perform.
+// Shows current tasks with their current dependencies, always freshly
+// queried right before each phase -- reused across draft/sequence/repair
+// rather than a single snapshot built once at the start of the run. A real
+// run showed why a stale snapshot is wrong: the repair phase reused the
+// pre-draft listing and still showed a just-added task as having nothing,
+// causing duplicate work. This is the reconciliation surface -- what makes
+// a rerun revise/extend existing state instead of drafting a second,
+// disconnected copy of it.
+async function buildCurrentTaskListText(workOrderId) {
+  const tasks = await taskService.listTasks(workOrderId);
+  if (tasks.length === 0) return '(none yet -- this is a first pass)';
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  return tasks
+    .map((t) => {
+      const deps = t.dependencies.length
+        ? t.dependencies.map((d) => `depends on "${byId.get(d.depends_on_task_id)?.name || '?'}"`).join('; ')
+        : 'no dependencies recorded yet';
+      return `- ${t.name}${t.description ? `: ${t.description}` : ''} (${deps})`;
+    })
+    .join('\n');
+}
+
+function buildDraftSystemPrompt(projectContext, existingTaskListText) {
+  return `You are decomposing an excavation/site-work job into a work breakdown of discrete tasks (sequencing comes in a later step -- just focus on drafting a complete task list now).
+
+## Tasks that already exist for this work order
+${existingTaskListText}
+
+This may be a first pass or a rerun after new information came in -- if tasks already exist above, treat them as the current state to build on, not a blank slate. Only call add_task for work that's genuinely missing given the project context below (e.g. a human just told you to add mobilization, or a new detail implies a step nothing above covers). Never re-add something that already exists, even worded differently -- if an existing task already covers the same real-world work, leave it alone and add nothing for it.
+
+Draft tasks from everything in the project context below -- the scope of work, conversation, site visit notes, customer/location info. Call add_task for each new one (createdVia: sow_extraction). Don't invent tasks the job doesn't need, but don't omit real ones either, including ones CFE doesn't itself perform.
 
 ${projectContext}`;
 }
 
 function buildSequenceSystemPrompt(projectContext, taskListText) {
-  return `You already drafted this task list for an excavation/site-work job:
+  return `Here is the current task list for an excavation/site-work job, including any dependencies already recorded:
 
 ${taskListText}
 
-Your job now is to sequence it. For every task above, call add_dependency for what it genuinely depends on -- you must attempt this for every task before finishing, not just the obvious ones. Include dependencies on Owner/third-party tasks where they apply. If sequencing reveals a required step with no task yet, call add_task for it (createdVia: dependency_gap_fill, with rationale explaining the gap), then add its dependencies too. Stop once every task's real dependencies are captured and no further gaps are apparent -- don't keep looping once sequencing is clean.
+Your job now is to sequence it. For every task above, call add_dependency for what it genuinely depends on that isn't already listed -- you must consider every task before finishing, not just the obviously incomplete ones. Never re-add a dependency already shown above.
+
+If some tasks were just added on top of an existing list (e.g. mobilization added after the fact), pay specific attention to wiring them into the existing graph in both directions: what the new task itself depends on, and which existing tasks should now depend on it. A newly added task left with no connection to the rest of the graph is exactly the kind of gap this step exists to catch -- don't just sequence the tasks that look unfinished, recheck ones that already had dependencies too, since a new task can change what they should point to.
+
+Include dependencies on Owner/third-party tasks where they apply. If sequencing reveals a required step with no task yet, call add_task for it (createdVia: dependency_gap_fill, with rationale explaining the gap), then add its dependencies too. Stop once every task's real dependencies are captured and no further gaps are apparent -- don't keep looping once sequencing is clean.
 
 ## Project context, for reference
 ${projectContext}`;
@@ -312,17 +345,28 @@ async function runPhase({ runId, phase, system, initialMessage, tools, taskByNam
 async function executeGeneration(runId, workOrderId) {
   const workOrder = await workOrderService.getWorkOrder(workOrderId);
   const projectContext = await buildProjectContext(workOrder.project_id);
-  const taskByName = new Map();
-  // Shared across both phases -- the ceiling is a real total-run budget,
-  // not reset per phase. See TOKEN_CEILING's comment for why this exists
+
+  // Reconciliation, not a blank slate -- pre-populate from whatever already
+  // exists so a rerun builds on prior work instead of drafting a second,
+  // disconnected copy of it. See docs/feedback/: a real production run
+  // showed exactly this gap -- a second "Generate Tasks" click produced an
+  // entirely separate chain of near-duplicate tasks with no link to the
+  // first, including two tasks named identically.
+  const existingTasks = await taskService.listTasks(workOrderId);
+  const taskByName = new Map(existingTasks.map((t) => [t.name.toLowerCase(), t]));
+  // Shared across all phases -- the ceiling is a real total-run budget, not
+  // reset per phase. See TOKEN_CEILING's comment for why this exists
   // independently of the round caps.
   const usage = { inputTokens: 0, outputTokens: 0, haltedForBudget: false };
 
+  const existingTaskListText = await buildCurrentTaskListText(workOrderId);
   const draftRounds = await runPhase({
     runId,
     phase: 'draft',
-    system: buildDraftSystemPrompt(projectContext),
-    initialMessage: 'Draft the task list now.',
+    system: buildDraftSystemPrompt(projectContext, existingTaskListText),
+    initialMessage: existingTasks.length
+      ? 'Reconcile the task list now -- add whatever is genuinely missing given the current project context, and leave what already exists alone.'
+      : 'Draft the task list now.',
     tools: [ADD_TASK_TOOL],
     taskByName,
     workOrderId,
@@ -341,11 +385,14 @@ async function executeGeneration(runId, workOrderId) {
     return;
   }
 
-  const taskListText = [...taskByName.values()].map((t) => `- ${t.name}`).join('\n');
+  // Fresh, not the pre-draft snapshot -- the draft phase may have just
+  // added tasks (e.g. mobilization) that need to show up as real current
+  // state to the sequencing phase, not "(none yet)".
+  const taskListForSequencing = await buildCurrentTaskListText(workOrderId);
   const sequenceRounds = await runPhase({
     runId,
     phase: 'sequence',
-    system: buildSequenceSystemPrompt(projectContext, taskListText),
+    system: buildSequenceSystemPrompt(projectContext, taskListForSequencing),
     initialMessage: 'Sequence every task above now.',
     tools: [ADD_TASK_TOOL, ADD_DEPENDENCY_TOOL],
     taskByName,
@@ -368,11 +415,16 @@ async function executeGeneration(runId, workOrderId) {
   // than looping indefinitely.
   let orphans = await findOrphanTasks(workOrderId);
   if (orphans.length > 0 && taskByName.size > 1) {
+    // Fresh again, same reason as above -- reusing the pre-sequence
+    // snapshot here is the specific bug a real run surfaced: the repair
+    // phase saw a stale "(none yet)" for a task the sequence phase had
+    // just connected, and duplicated work already done in the same run.
+    const freshTaskListText = await buildCurrentTaskListText(workOrderId);
     const orphanListText = orphans.map((o) => `- ${o.name}`).join('\n');
     await runPhase({
       runId,
       phase: 'repair-orphans',
-      system: buildOrphanRepairSystemPrompt(projectContext, taskListText, orphanListText),
+      system: buildOrphanRepairSystemPrompt(projectContext, freshTaskListText, orphanListText),
       initialMessage: 'Connect the orphaned tasks now.',
       tools: [ADD_DEPENDENCY_TOOL],
       taskByName,
@@ -390,12 +442,17 @@ async function executeGeneration(runId, workOrderId) {
     orphans = await findOrphanTasks(workOrderId);
   }
 
-  if (orphans.length > 0) {
-    await finishRun(
-      runId,
-      'stopped',
-      `${orphans.length} task(s) still have no dependency relationship after a repair attempt -- review and connect manually: ${orphans.map((o) => o.name).join(', ')}`
-    );
+  const duplicates = await findDuplicateTaskNames(workOrderId);
+
+  if (orphans.length > 0 || duplicates.length > 0) {
+    const parts = [];
+    if (orphans.length > 0) {
+      parts.push(`${orphans.length} task(s) still have no dependency relationship after a repair attempt -- review and connect manually: ${orphans.map((o) => o.name).join(', ')}`);
+    }
+    if (duplicates.length > 0) {
+      parts.push(`${duplicates.length} task name(s) appear more than once, likely from separate generation runs -- review and merge manually: ${duplicates.map((d) => d.name).join(', ')}`);
+    }
+    await finishRun(runId, 'stopped', parts.join(' | '));
     return;
   }
 
@@ -411,6 +468,26 @@ async function findOrphanTasks(workOrderId) {
      WHERE t.work_order_id = $1
        AND NOT EXISTS (SELECT 1 FROM task_dependencies d WHERE d.task_id = t.id)
        AND NOT EXISTS (SELECT 1 FROM task_dependencies d WHERE d.depends_on_task_id = t.id)`,
+    [workOrderId]
+  );
+  return rows;
+}
+
+// A mechanical, exact-name safety net for the reconciliation prompt not
+// being followed -- real production data showed exactly this failure mode
+// before reconciliation existed: a second "Generate Tasks" run produced an
+// entirely separate, disconnected chain of tasks, several with names
+// identical to ones already there ("Perimeter ash scrape" twice, "Final
+// site cleanup" twice). This won't catch a reworded near-duplicate (that
+// needs real judgment, not a string match), but an exact repeat is an
+// unambiguous signal worth surfacing for manual merge rather than staying
+// silent about.
+async function findDuplicateTaskNames(workOrderId) {
+  const { rows } = await pool.query(
+    `SELECT MIN(name) AS name, count(*)::int AS count
+     FROM tasks WHERE work_order_id = $1
+     GROUP BY lower(name)
+     HAVING count(*) > 1`,
     [workOrderId]
   );
   return rows;
