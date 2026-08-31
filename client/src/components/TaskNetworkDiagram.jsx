@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { computeColumns } from '../lib/taskGraph.js';
 
 // Read-only network diagram, computed entirely client-side from data the
 // Tasks tab already has loaded -- no new endpoint, no new dependency.
@@ -13,34 +14,6 @@ const ROW_GAP = 24;
 const MARGIN = 30;
 
 const RESPONSIBLE_LABELS = { owner: 'Owner', third_party: 'Third party' };
-
-// Longest-path-from-root layering: a task's column is one more than the
-// deepest of its dependencies' columns, so every edge always points from a
-// strictly earlier column to a strictly later one -- no back-edges to route
-// around. Memoized recursion; the write-side cycle guard (taskService.js)
-// means this graph should always be a DAG, but a `visiting` guard keeps a
-// stray cycle from infinite-looping the layout instead of just looking odd.
-function computeColumns(tasks) {
-  const byId = new Map(tasks.map((t) => [t.id, t]));
-  const column = new Map();
-  const visiting = new Set();
-
-  function columnOf(taskId) {
-    if (column.has(taskId)) return column.get(taskId);
-    if (visiting.has(taskId)) return 0;
-    visiting.add(taskId);
-    const task = byId.get(taskId);
-    const deps = task?.dependencies || [];
-    const depCols = deps.map((d) => columnOf(d.depends_on_task_id));
-    const result = depCols.length ? Math.max(...depCols) + 1 : 0;
-    column.set(taskId, result);
-    visiting.delete(taskId);
-    return result;
-  }
-
-  tasks.forEach((t) => columnOf(t.id));
-  return column;
-}
 
 function isIsolated(task, tasks) {
   const hasIncoming = tasks.some((t) => t.dependencies.some((d) => d.depends_on_task_id === task.id));

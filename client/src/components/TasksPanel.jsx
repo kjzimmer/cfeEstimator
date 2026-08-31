@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
 import TaskNetworkDiagram from './TaskNetworkDiagram.jsx';
+import { sortByDependencyOrder } from '../lib/taskGraph.js';
 
 const RESPONSIBLE_LABELS = { CFE: 'CFE', owner: 'Owner', third_party: 'Third party' };
 const RESPONSIBLE_OPTIONS = Object.keys(RESPONSIBLE_LABELS);
@@ -741,6 +742,11 @@ export default function TasksPanel({ projectId }) {
 
   const draftCount = tasks?.filter((t) => t.status === 'draft').length ?? 0;
   const requirementsByTask = (taskId) => requirements.filter((r) => r.task_id === taskId);
+  // Dependency order, not insertion order -- a task's position in the list
+  // reflects when it can actually happen, same topological computation the
+  // network diagram already uses. Ties (siblings with no order relative to
+  // each other) break by id for a stable render.
+  const sortedTasks = useMemo(() => (tasks ? sortByDependencyOrder(tasks) : []), [tasks]);
 
   return (
     <div className="h-full flex flex-col bg-surface border border-border rounded-lg overflow-hidden">
@@ -795,7 +801,7 @@ export default function TasksPanel({ projectId }) {
             )}
             {tasks.length > 0 && (
               <div className="bg-bg border border-border rounded-lg divide-y divide-border">
-                {tasks.map((task) => (
+                {sortedTasks.map((task) => (
                   <TaskRow
                     key={task.id}
                     task={task}
