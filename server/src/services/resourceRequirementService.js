@@ -126,7 +126,14 @@ export async function updateRequirement(
 
   await memoryService.recordResourceCorrection({
     requirement: before,
-    corrected: { description, qty: qty || 0, unit: unit || '', basisQuantity: basisQuantity ?? null, basisRate: basisRate ?? null },
+    corrected: {
+      description,
+      qty: qty || 0,
+      unit: unit || '',
+      basisQuantity: basisQuantity ?? null,
+      basisRate: basisRate ?? null,
+      rationale: rationale || '',
+    },
   });
 
   return updated;

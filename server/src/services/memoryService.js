@@ -108,12 +108,18 @@ export async function proposeFromAgent({ instruction, sourceRefs = [] }) {
 export async function recordResourceCorrection({ requirement, corrected }) {
   if (requirement.created_via !== 'resource_estimation') return null;
 
+  // A rationale change counts as worth recording on its own, not just a
+  // number change -- per Karl: a number is never itself the rationale, the
+  // reasoning behind it is. A human adding real logic to an estimate that
+  // already happened to land on a reasonable number is exactly the kind of
+  // correction this exists to capture, not just "the value moved."
   const changed =
     Number(requirement.qty) !== Number(corrected.qty) ||
     (requirement.basis_rate !== null && requirement.basis_rate !== undefined
       ? Number(requirement.basis_rate) !== Number(corrected.basisRate ?? requirement.basis_rate)
       : corrected.basisRate !== null && corrected.basisRate !== undefined) ||
-    requirement.description.trim().toLowerCase() !== corrected.description.trim().toLowerCase();
+    requirement.description.trim().toLowerCase() !== corrected.description.trim().toLowerCase() ||
+    (requirement.rationale || '').trim() !== (corrected.rationale || '').trim();
   if (!changed) return null;
 
   const evidenceEntry = {
@@ -126,6 +132,7 @@ export async function recordResourceCorrection({ requirement, corrected }) {
       unit: requirement.unit,
       basisQuantity: requirement.basis_quantity,
       basisRate: requirement.basis_rate,
+      rationale: requirement.rationale || '',
     },
     corrected: {
       description: corrected.description,
@@ -133,6 +140,7 @@ export async function recordResourceCorrection({ requirement, corrected }) {
       unit: corrected.unit,
       basisQuantity: corrected.basisQuantity ?? null,
       basisRate: corrected.basisRate ?? null,
+      rationale: corrected.rationale || '',
     },
     at: new Date().toISOString(),
   };
@@ -146,12 +154,22 @@ export async function recordResourceCorrection({ requirement, corrected }) {
     return rows[0] || null;
   }
 
+  // Prefer the human's own stated reasoning as the hypothesis content --
+  // that reasoning is the actual thing worth remembering and reusing next
+  // time, not just "the number changed." Falls back to a generic (and
+  // honestly weaker) placeholder when no reasoning was given, rather than
+  // inventing logic that wasn't actually stated.
+  const hasReasoning = corrected.rationale && corrected.rationale.trim().length > 0;
+  const content = hasReasoning
+    ? `For "${corrected.description}": ${corrected.rationale.trim()} (corrected from an AI estimate of ${requirement.qty} ${requirement.unit} to ${corrected.qty} ${corrected.unit}.)`
+    : `A human corrected an AI-estimated resource requirement for "${requirement.description}" (${requirement.qty} ${requirement.unit} -> ${corrected.qty} ${corrected.unit}) without stating a reason -- the corrected value alone isn't a confirmed tendency, just a data point.`;
+
   const { rows } = await pool.query(
     `INSERT INTO semantic_memory (content, status, origin, source_refs, evidence)
      VALUES ($1, 'hypothesis', 'agent_inferred', $2::jsonb, $3::jsonb)
      RETURNING *`,
     [
-      `A human corrected an AI-estimated resource requirement for "${requirement.description}" -- the corrected value may reflect a CFE-specific tendency worth confirming.`,
+      content,
       JSON.stringify([{ type: 'task_resource_requirement', id: requirement.id }]),
       JSON.stringify([evidenceEntry]),
     ]
