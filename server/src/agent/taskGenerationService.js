@@ -94,11 +94,18 @@ const ADD_DEPENDENCY_TOOL = {
 };
 
 // Exported for reuse by resourceAgentService.js -- same project context, no
-// reason to rebuild it.
-export async function buildProjectContext(projectId) {
+// reason to rebuild it. includeConversation defaults to true (Task Agent's
+// existing, unchanged behavior); the Resource Agent passes false -- see
+// docs/feedback/ for why: the raw thread can contain the Project Agent's own
+// past narration of a manually-drafted work order ("Added: Water for Dust
+// Suppression @ $350"), and reading that back as input is exactly backwards
+// -- the work order is this pipeline's *output*. project.definition is the
+// Project Agent's own distilled extraction of job facts and doesn't carry
+// that downstream commentary, so it's the right input on its own.
+export async function buildProjectContext(projectId, { includeConversation = true } = {}) {
   const [project, messages, files] = await Promise.all([
     projectService.getProject(projectId),
-    messageService.listMessages(projectId),
+    includeConversation ? messageService.listMessages(projectId) : Promise.resolve([]),
     storage.list(projectId),
   ]);
 
@@ -107,7 +114,9 @@ export async function buildProjectContext(projectId) {
       .map(([key, value]) => `### ${key}\n${value}`)
       .join('\n\n') || '(empty -- nothing defined yet)';
 
-  const threadContext = messages.length
+  const threadContext = !includeConversation
+    ? '(intentionally omitted for this agent -- see project definition above for distilled job facts)'
+    : messages.length
     ? messages
         .map((m) => `[${m.sender_type === 'agent' ? 'Agent' : m.user_name || 'user'}]: ${m.content}`)
         .join('\n')

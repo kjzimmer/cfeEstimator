@@ -44,7 +44,14 @@ const ADD_RESOURCE_REQUIREMENT_TOOL = {
         description: 'What the resource is -- use an exact rate card name from the vocabulary provided when the resource is genuinely the same thing',
       },
       qty: { type: 'number' },
-      unit: { type: 'string', description: 'e.g. hr, day, CY, ton, ea' },
+      unit: {
+        type: 'string',
+        description:
+          'A real, measurable unit -- hr, day, CY, ton, SF, LF, gal, ea, etc. Never a vague placeholder like "job" or ' +
+          '"misc". "LS" (lump sum) is only for a genuinely one-time flat item that does not scale with the job\'s size ' +
+          'or duration (e.g. a permit fee, mobilization) -- if the resource actually scales with quantity or time ' +
+          '(e.g. water usage, consumable materials), use a real unit and a basis instead of defaulting to a flat count.',
+      },
       rationale: { type: 'string', description: 'What you assumed and why, in a sentence a reviewer could check -- required' },
       confident: {
         type: 'boolean',
@@ -88,9 +95,21 @@ const PROPOSE_PROCESS_IMPROVEMENT_TOOL = {
 
 const RATE_CARD_TYPES = ['service_rates', 'material_costs', 'equipment_rates', 'employee_role_rates'];
 
+// Rejected outright rather than just discouraged in the prompt -- a live run
+// showed the model default to "job" for materials that had a pre-existing
+// flat dollar amount to anchor to, with no basis decomposition at all. "LS"
+// is the real convention CFE's own rate cards/work orders already use for a
+// genuinely non-scaling flat item; these aren't that.
+const VAGUE_UNIT_DENYLIST = new Set(['job', 'jobs', 'each job', 'lump sum', 'lumpsum', 'misc', 'miscellaneous']);
+
 async function gatherContext(workOrderId) {
   const workOrder = await workOrderService.getWorkOrder(workOrderId);
-  const projectContext = await buildProjectContext(workOrder.project_id);
+  // includeConversation: false -- see buildProjectContext's comment. Confirmed
+  // via a real run that omitting this matters: three material requirements
+  // came back with qty 1 / unit "job" and no basis at all, echoing a flat
+  // dollar amount from the conversation's old work-order narration instead of
+  // reasoning out a real quantity.
+  const projectContext = await buildProjectContext(workOrder.project_id, { includeConversation: false });
   const allTasks = await taskService.listTasks(workOrderId);
   const approvedTasks = allTasks.filter((t) => t.status === 'approved');
 
@@ -218,6 +237,11 @@ async function runPhase({ runId, phase, system, initialMessage, tools, taskByNam
           } = toolUse.input;
           const task = taskByName.get(taskName.toLowerCase());
           if (!task) throw new Error(`Unknown task name: "${taskName}"`);
+          if (VAGUE_UNIT_DENYLIST.has((unit || '').trim().toLowerCase())) {
+            throw new Error(
+              `"${unit}" isn't a real unit. Use a measurable unit (hr, day, CY, ton, SF, LF, gal, ea) with a basis, or "LS" only for a genuinely non-scaling flat item.`
+            );
+          }
           const sourceRefs = semanticMemoryId ? [{ type: 'semantic_memory_hypothesis', id: semanticMemoryId }] : [];
           const requirement = await resourceRequirementService.createGeneratedRequirement(task.id, {
             resourceType,
