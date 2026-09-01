@@ -47,19 +47,14 @@ const TOOLS = [
   {
     name: 'draft_work_order',
     description:
-      'Create or update the project\'s DRAFT work order -- the priced line-item list that ' +
-      'becomes the customer-facing PDF once a human finalizes it. You can draft and revise ' +
-      'this freely; only a human clicking "Generate Work Order" in the app can finalize it, ' +
-      'so there\'s no harm in proposing a list early and refining it as the conversation ' +
-      'clarifies scope. Omit fields you don\'t want to change. When you do pass lineItems, ' +
-      'it fully REPLACES the current list -- include every line that should remain, not just new ones. ' +
-      'Rates only ever come from a rate card -- there is no field for you to supply a rate directly, for ' +
-      'any line, ever. For each line, try to reference a real rate card entry by rateCardType + ' +
-      'rateCardItemName (name must match one from the catalog in your system context EXACTLY -- never a ' +
-      'similar-but-different item you judge as "close enough," that defeats the point). If nothing in the ' +
-      'catalog matches, still add the line with just name/unit/qty (no rateCardType) -- it\'ll be scope-only ' +
-      'and unresolved, which is expected and fine while drafting. Mention in your reply that it has no rate ' +
-      'yet and needs a rate card entry added before the work order can be finalized -- never invent a number.',
+      'Set the project\'s draft work order HEADER fields (scope text, site location, requested start, ' +
+      'contingency, terms) -- NOT line items. Line items now come from the task/resource pipeline (Generate ' +
+      'Tasks -> approve -> Generate Resource Requirements -> Generate Line Items in the app), not from this ' +
+      'conversation -- omit lineItems entirely, always. If a human asks you to add, price, or change a line ' +
+      'item directly in chat, don\'t do it here: explain that pricing now comes from that pipeline once tasks ' +
+      'and resources are established, and that a one-off manual line (if one is genuinely needed outside the ' +
+      'pipeline) can still be added directly in the Work Order tab\'s "Scope only" form. Omit any field you ' +
+      'don\'t want to change.',
     input_schema: {
       type: 'object',
       properties: {
@@ -70,7 +65,7 @@ const TOOLS = [
         terms: { type: 'string', description: 'Payment/terms text for the PDF' },
         lineItems: {
           type: 'array',
-          description: 'Full replacement list of line items (omit this field entirely to leave the current list untouched)',
+          description: 'Deprecated -- always omit this. Line items come from the task/resource pipeline now, never from this tool.',
           items: {
             type: 'object',
             properties: {
@@ -169,7 +164,17 @@ const TOOLS = [
       '(this job\'s exact square footage, a one-time customer request) -- only for what reads as a pattern, ' +
       'rule, or tendency. Same procedural-vs-semantic classification as propose_memory_entry (procedural: how ' +
       'to behave/decompose work; semantic: a durable domain fact) -- check for an embedded rate/price the same ' +
-      'way first; that belongs in Company Info, not here.',
+      'way first; that belongs in Company Info, not here.\n\n' +
+      'If content states a number (a duration, quantity, or rate), you MUST also fill in appliesWhen -- what ' +
+      'the number is actually anchored to. A real example this caught: "mobilization takes about 2 hours" with ' +
+      'no mention that this was for a specific ~90-mile trip -- mobilization time is fundamentally a function ' +
+      'of distance, so a bare duration with nothing said about what it depends on is close to guaranteed to be ' +
+      'wrong the next time distance differs. If you can\'t identify what the number depends on, don\'t state it ' +
+      'as a fixed fact -- describe the relationship instead (e.g. "mobilization time scales with distance") ' +
+      'rather than asserting an outcome.\n\n' +
+      'Only call this if you are actually calling it -- never tell the human you\'ve "noted" or "will remember" ' +
+      'something in your reply unless this tool call is genuinely present in the same turn. Saying so without ' +
+      'doing it is worse than not mentioning it at all.',
     input_schema: {
       type: 'object',
       properties: {
@@ -177,6 +182,10 @@ const TOOLS = [
         content: {
           type: 'string',
           description: 'The pattern, rule, or tendency, in your own words -- specific enough to be checked against next time it comes up',
+        },
+        appliesWhen: {
+          type: 'string',
+          description: 'Required when content states a number -- the condition/variable it depends on (e.g. "for ~90 mile one-way trips"). Omit only when content has no number in it.',
         },
         sourceConversationRef: {
           type: 'string',
@@ -279,13 +288,15 @@ function buildSystemPrompt(companySections, rateCardContext, project, workOrderC
     .map(([key, value]) => `### ${key}\n${value}`)
     .join('\n\n') || '(empty -- nothing defined yet)';
 
-  return `You are the CFE project agent, participating in a shared conversation with CFE's estimating team about a single excavation job. Your job is to read the conversation, any uploaded files, and company context, then incrementally build up this project's structured definition (SOW, location, materials, assets, labor, billing, site visit notes, etc.) toward something bid-ready -- and to draft a work order (priced line items) once you have enough information, using the rate card catalog below.
+  return `You are the CFE project agent, participating in a shared conversation with CFE's estimating team about a single excavation job. Your job is to read the conversation, any uploaded files, and company context, then incrementally build up this project's structured definition (SOW, location, materials, assets, labor, billing, site visit notes, etc.) toward something bid-ready.
 
-Use the update_project_component tool proactively whenever you learn something concrete -- don't wait to be asked. Use draft_work_order once scope and quantities are clear enough to price, and again whenever they change -- a human still has to review and click "Generate Work Order" before anything goes to the customer, so draft early and revise freely rather than waiting for certainty. Keep your chat replies conversational and short; put structured detail into components and the draft work order, not into the chat reply.
+Use the update_project_component tool proactively whenever you learn something concrete -- don't wait to be asked. Keep your chat replies conversational and short; put structured detail into components, not into the chat reply.
+
+Pricing does NOT happen in this conversation anymore. The actual sequence is: the human generates a task list (Tasks tab), approves it, generates resource requirements, then generates priced line items from those -- all outside this chat. Your job is to help establish the facts those steps need (scope, site details, quantities, preferences), not to price anything yourself. If a human asks you to draft, price, or add a line item, don't -- explain the sequence above and that a one-off manual line (if genuinely needed outside that pipeline) goes in the Work Order tab's "Scope only" form instead. draft_work_order still exists, but only for the work order's header fields (scope text, site location, contingency, terms), never line items.
 
 If a human explicitly asks you to remember something (they say "remember..." or clearly ask you to retain a rule or fact for the future), use propose_memory_entry per its own instructions -- this only logs a proposal for admin review, it doesn't take effect immediately, so tell them that's what happened. Never call it unless they explicitly asked you to remember something.
 
-Separately, and more often: after any substantive request, correction, or stated preference -- with no "remember" needed -- use form_memory_hypothesis if it looks like it could generalize beyond this one job (per its own instructions for exactly how to judge that). This is the normal, expected way learning happens here, not an edge case -- a human asking for something once is itself the teaching signal, and forming the hypothesis costs nothing since it just gets reinforced or naturally fades in relevance if it doesn't come up again. Don't ask the human whether to log it -- just do it, and mention briefly in your reply that you've noted it as a pattern to watch for.
+Separately, and more often: after any substantive request, correction, or stated preference -- with no "remember" needed -- use form_memory_hypothesis if it looks like it could generalize beyond this one job (per its own instructions for exactly how to judge that, including when a number requires stating what it depends on). This is the normal, expected way learning happens here, not an edge case -- a human asking for something once is itself the teaching signal, and forming the hypothesis costs nothing since it just gets reinforced or naturally fades in relevance if it doesn't come up again. Don't ask the human whether to log it -- just do it. Mention it briefly and naturally in your reply, the way a person would in conversation -- e.g. "I'll keep this in mind for future work orders too" -- not a formal status report like "I've noted that X should always be Y."
 
 The Resource Agent (a separate background process) sometimes can't determine what a task needs and flags it, listed below under "Open resource questions." If the human's message answers one of these -- or corrects a resource requirement more generally -- call resolve_resource_requirement with the real values, reflecting what they actually said in the rationale. This is the only way these get resolved; never tell a human to go edit the Tasks tab themselves, the conversation is how data enters this system.
 
@@ -362,8 +373,12 @@ export async function runAgentTurn(projectId, triggeredByUserId = null) {
   let currentProject = project;
 
   // Tool-calling loop: keep going while Claude asks to call tools, stop once
-  // it produces a final text turn.
-  for (let turn = 0; turn < 6; turn++) {
+  // it produces a final text turn. 8, not the original 6 -- the tool surface
+  // has grown since that cap was set (form_memory_hypothesis and
+  // resolve_resource_requirement didn't exist yet), and one live run came
+  // back with an empty reply, plausibly from running out of turns on
+  // tool-only rounds before reaching a final text response.
+  for (let turn = 0; turn < 8; turn++) {
     const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1536,
@@ -402,9 +417,13 @@ export async function runAgentTurn(projectId, triggeredByUserId = null) {
           // elsewhere for system-attributed rows.
           const draft = await workOrderService.ensureDraft(projectId, null);
 
-          if (lineItems) {
-            await workOrderService.replaceLineItems(draft.id, lineItems);
-          }
+          // Structural, not just a prompt request: line items come from the
+          // task/resource pipeline now, not this tool. Ignored even if the
+          // model still sends them, rather than trusting the description
+          // alone -- consistent with this project's practice of backing a
+          // prompt instruction with a real check once a failure mode is
+          // understood, not just asking more clearly.
+          const ignoredLineItemCount = Array.isArray(lineItems) ? lineItems.length : 0;
 
           const hasFieldUpdates =
             scopeText !== undefined ||
@@ -426,7 +445,10 @@ export async function runAgentTurn(projectId, triggeredByUserId = null) {
           toolResults.push({
             type: 'tool_result',
             tool_use_id: toolUse.id,
-            content: 'Draft work order updated.',
+            content:
+              ignoredLineItemCount > 0
+                ? `Header fields updated. lineItems was ignored (${ignoredLineItemCount} line(s)) -- line items come from the task/resource pipeline now, not this tool. Tell the human that, don't imply the lines were saved.`
+                : 'Draft work order header fields updated.',
           });
         } else if (toolUse.name === 'propose_memory_entry') {
           const { type, content, sourceConversationRef } = toolUse.input;
@@ -473,12 +495,12 @@ export async function runAgentTurn(projectId, triggeredByUserId = null) {
             content: `Resolved requirement ${requirementId} ("${description}").`,
           });
         } else if (toolUse.name === 'form_memory_hypothesis') {
-          const { type, content, sourceConversationRef } = toolUse.input;
+          const { type, content, appliesWhen, sourceConversationRef } = toolUse.input;
           const sourceRefs = sourceConversationRef ? [sourceConversationRef] : [];
           const entry =
             type === 'procedural'
               ? await memoryService.formProceduralHypothesis({ instruction: content, sourceRefs })
-              : await memoryService.formSemanticHypothesis({ content, sourceRefs });
+              : await memoryService.formSemanticHypothesis({ content, appliesWhen, sourceRefs });
           toolResults.push({
             type: 'tool_result',
             tool_use_id: toolUse.id,

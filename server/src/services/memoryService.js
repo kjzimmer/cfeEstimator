@@ -139,13 +139,32 @@ export async function formProceduralHypothesis({ instruction, sourceRefs = [] })
 // recordResourceCorrection's hypothesis creation which is always tied to a
 // specific resource correction. This is for an ordinary conversational
 // observation with no prior estimate to correct.
-export async function formSemanticHypothesis({ content, sourceRefs = [] }) {
+// appliesWhen is required whenever content states a number -- found via a
+// real bad hypothesis this was built to prevent: "mobilization typically
+// takes about 2 hours" with no mention that this was for a ~90 mile trip.
+// Mobilization time is fundamentally a function of distance; a bare
+// duration with nothing said about what it depends on is a near-guaranteed
+// misapplication waiting to happen, not a real generalization. Rejecting
+// outright rather than only asking nicely in the tool description -- same
+// reasoning as the vague-unit denylist elsewhere in this pipeline: this
+// specific failure mode has already been observed live, so it gets a
+// structural check, not just a prompt request.
+export async function formSemanticHypothesis({ content, appliesWhen = '', sourceRefs = [] }) {
   const trimmed = content.trim();
+  if (/\d/.test(trimmed) && !appliesWhen.trim()) {
+    throw new Error(
+      `"${trimmed}" states a number with no stated condition. A duration/quantity/rate needs to say what it's ` +
+      `anchored to (e.g. distance, crew size, job size) or it's likely to be misapplied outside the one instance ` +
+      `it came from. Either state the condition this applies under, or describe the relationship (e.g. ` +
+      `"mobilization time scales with distance") instead of asserting a fixed number.`
+    );
+  }
+  const finalContent = appliesWhen.trim() ? `${trimmed} (applies when: ${appliesWhen.trim()})` : trimmed;
   const evidenceEntry = { type: 'observed_instance', sourceRefs, at: new Date().toISOString() };
 
   const { rows: existingRows } = await pool.query(
     `SELECT * FROM semantic_memory WHERE lower(content) = lower($1) AND status IN ('proposed', 'hypothesis', 'confirmed')`,
-    [trimmed]
+    [finalContent]
   );
   if (existingRows[0]) {
     const { rows } = await pool.query(
@@ -159,7 +178,7 @@ export async function formSemanticHypothesis({ content, sourceRefs = [] }) {
     `INSERT INTO semantic_memory (content, status, origin, source_refs, evidence)
      VALUES ($1, 'hypothesis', 'agent_inferred', $2::jsonb, $3::jsonb)
      RETURNING *`,
-    [trimmed, JSON.stringify(sourceRefs), JSON.stringify([evidenceEntry])]
+    [finalContent, JSON.stringify(sourceRefs), JSON.stringify([evidenceEntry])]
   );
   return rows[0];
 }
