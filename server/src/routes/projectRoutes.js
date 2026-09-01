@@ -498,7 +498,12 @@ router.post('/:id/work-orders/:woId/resource-requirements/generate-line-items', 
 // Task Agent's generate endpoint (proxy timeout risk on a multi-round LLM loop).
 router.post('/:id/work-orders/:woId/resource-requirements/generate', asyncHandler(async (req, res) => {
   try {
-    const run = await resourceAgentService.startGeneration(req.params.woId, req.user.sub);
+    // fullReload: discards every existing requirement for this work order
+    // first (human-reviewed included) and estimates clean -- an explicit
+    // choice, never the default. See resourceAgentService.startGeneration.
+    const run = await resourceAgentService.startGeneration(req.params.woId, req.user.sub, {
+      fullReload: Boolean(req.body?.fullReload),
+    });
     res.status(202).json(run);
   } catch (err) {
     res.status(409).json({ error: err.message });

@@ -258,6 +258,7 @@ ${rateCardVocabText}
 For every task above:
 - If it has no existing requirements ("(none yet)"), call add_resource_requirement for each resource it genuinely needs.
 - If it already has existing requirements, review each against the current project context and semantic memory. If it still holds, leave it alone -- doing nothing is the correct action, not a missed step. Only call update_resource_requirement when there's a real reason tied to new or different information, and say what that reason is in the revised rationale. Never call add_resource_requirement to duplicate something a task already has.
+- An existing requirement described as "Unresolved -- needs input" is a placeholder a previous run couldn't resolve, not a real resource choice to defer to. If you can now determine what the task actually needs, call update_resource_requirement on that exact existing id to replace it -- never leave the placeholder in place while separately add_resource_requirement-ing the real resource alongside it.
 - Give real deference to anything marked HUMAN-REVIEWED -- a human has already reasoned through that one. Only revise it with a clearly stated reason tied to genuinely new information, never because you'd have guessed differently yourself.
 - A task tagged "[responsible party: owner]" or "[responsible party: third_party]" means the *substantive work* belongs to them, not CFE -- never add a resource that describes CFE performing that work (filing their paperwork, paying for their inspection, doing their survey). But CFE still very often spends real time coordinating, tracking, or following up on someone else's task -- when that's genuinely true, add a CFE labor resource for that coordination specifically, described and reasoned as coordination (e.g. "confirm receipt," "follow up on status"), never as if CFE were doing the underlying work itself.
 - Watch for paired/mirror tasks -- demobilization vs. mobilization is the most common one, but the same idea applies to any task that's essentially another task run in reverse (e.g. setup vs. teardown of the same thing). When you're estimating one and its counterpart already has resources, use the counterpart as your starting point (same equipment, same distance, roughly the same or a stated-different duration) rather than treating it as a fresh unknown -- a demobilization run genuinely can differ (equipment left on site, a multi-stop job), so this is a starting assumption to reason from, not a rule to apply blindly. State the mirrored basis explicitly in the rationale either way (e.g. "same round trip as mobilization" or "differs from mobilization because...").
@@ -488,17 +489,38 @@ async function runPhase({ runId, phase, system, initialMessage, tools, taskByNam
   return round;
 }
 
+// A task with only a leftover "Unresolved -- needs input" placeholder (from
+// this run or an earlier one) doesn't count as covered -- a real run showed
+// why this matters: two tasks kept that placeholder from a prior, bug-
+// afflicted run and were never revisited on a later rerun at all, because
+// this check (before this fix) only asked "does any row exist," which the
+// placeholder itself already satisfied. That silently defeated the "every
+// task gets something" guarantee across reruns -- the repair phase and the
+// final flag-as-unresolved fallback both rely on this function to know what
+// still needs attention. See docs/feedback/.
 async function findTasksMissingRequirements(approvedTasks) {
   const { rows } = await pool.query(
     `SELECT t.id, t.name FROM tasks t
      WHERE t.id = ANY($1::int[])
-       AND NOT EXISTS (SELECT 1 FROM task_resource_requirements r WHERE r.task_id = t.id)`,
+       AND NOT EXISTS (
+         SELECT 1 FROM task_resource_requirements r
+         WHERE r.task_id = t.id
+           AND NOT (r.resource_type = 'other' AND r.description = 'Unresolved -- needs input')
+       )`,
     [approvedTasks.map((t) => t.id)]
   );
   return rows;
 }
 
-export async function startGeneration(workOrderId, userId) {
+// fullReload (docs/feedback/): a deliberate, explicit clean-slate run,
+// distinct from the default rerun above (which reconciles against existing
+// state). Discards every requirement for this work order first -- including
+// human-reviewed ones -- then estimates as if none had ever existed. Karl's
+// framing: useful now for assessing the agent's own judgment without
+// reconciliation behavior in the way; the reconciliation path itself (what
+// should happen when existing state is kept, not discarded) is a separate,
+// harder problem to solve once the clean-slate path is trusted.
+export async function startGeneration(workOrderId, userId, { fullReload = false } = {}) {
   const existing = await pool.query(
     `SELECT id FROM resource_generation_runs WHERE work_order_id = $1 AND status = 'running'`,
     [workOrderId]
@@ -518,7 +540,7 @@ export async function startGeneration(workOrderId, userId) {
   );
   const run = rows[0];
 
-  executeGeneration(run.id, workOrderId).catch(async (err) => {
+  executeGeneration(run.id, workOrderId, { fullReload }).catch(async (err) => {
     console.error('Resource requirement generation failed:', err);
     await finishRun(run.id, 'error', err.message).catch(() => {});
   });
@@ -526,7 +548,10 @@ export async function startGeneration(workOrderId, userId) {
   return run;
 }
 
-async function executeGeneration(runId, workOrderId) {
+async function executeGeneration(runId, workOrderId, { fullReload = false } = {}) {
+  if (fullReload) {
+    await resourceRequirementService.deleteAllForWorkOrder(workOrderId);
+  }
   const { approvedTasks, existingReqById, ...context } = await gatherContext(workOrderId);
   const taskByName = new Map(approvedTasks.map((t) => [t.name.toLowerCase(), t]));
   const usage = { inputTokens: 0, outputTokens: 0, haltedForBudget: false };

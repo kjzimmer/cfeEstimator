@@ -18,6 +18,19 @@ export async function listRequirements(workOrderId) {
   return rows;
 }
 
+// Full reload (docs/feedback/): discards every requirement for a work order
+// -- human-reviewed or not, evidence history included -- so the Resource
+// Agent can estimate from a genuinely clean slate. Distinct from the default
+// reconciliation rerun, which revises existing state; this is a deliberate,
+// explicit choice a human makes, not something a rerun does implicitly.
+export async function deleteAllForWorkOrder(workOrderId) {
+  await pool.query(
+    `DELETE FROM task_resource_requirements
+     WHERE task_id IN (SELECT id FROM tasks WHERE work_order_id = $1)`,
+    [workOrderId]
+  );
+}
+
 export async function createRequirement(
   taskId,
   { resourceType, description, qty = 0, unit = '', rationale = '' }

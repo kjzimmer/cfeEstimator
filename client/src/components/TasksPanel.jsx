@@ -698,10 +698,15 @@ export default function TasksPanel({ projectId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generatingResources, workOrderId]);
 
-  async function handleGenerateResources() {
+  async function handleGenerateResources({ fullReload = false } = {}) {
+    if (fullReload && !window.confirm(
+      'This discards every existing resource requirement for this work order -- including human-reviewed ones -- and estimates from a clean slate. Continue?'
+    )) {
+      return;
+    }
     setResourceGenError('');
     try {
-      await api.generateResourceRequirements(projectId, workOrderId);
+      await api.generateResourceRequirements(projectId, workOrderId, { fullReload });
       setGeneratingResources(true);
     } catch (err) {
       setResourceGenError(err.message);
@@ -841,12 +846,22 @@ export default function TasksPanel({ projectId }) {
             {tasks.length > 0 && draftCount === 0 && (
               <div className="pt-2 border-t border-border flex items-center gap-3 flex-wrap">
                 <button
-                  onClick={handleGenerateResources}
+                  onClick={() => handleGenerateResources()}
                   disabled={generatingResources}
                   className="text-sm font-medium px-3 py-1.5 rounded-md border border-accent text-accent hover:bg-accent/10 disabled:opacity-60 transition-colors w-fit"
                 >
                   {generatingResources ? 'Estimating resources…' : 'Generate Resource Requirements'}
                 </button>
+                {requirements.length > 0 && (
+                  <button
+                    onClick={() => handleGenerateResources({ fullReload: true })}
+                    disabled={generatingResources}
+                    title="Discards every existing resource requirement for this work order and estimates from scratch"
+                    className="text-xs font-medium text-text-secondary hover:text-red-600 disabled:opacity-60 transition-colors w-fit"
+                  >
+                    Reload all from scratch
+                  </button>
+                )}
                 {generatingResources && (
                   <span className="text-xs text-text-secondary">This can take a minute or two.</span>
                 )}
