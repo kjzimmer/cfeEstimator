@@ -4,9 +4,13 @@ import { pool } from '../db/pool.js';
 // context, not project-scoped -- see agentService.js's prompt-assembly hook
 // for how this actually reaches the agent.
 
+// 'hypothesis' included alongside 'active' -- see the schema comment. A
+// proactively-formed hypothesis is usable the moment it's created, same as
+// semantic_memory's hypothesis status below; it doesn't wait for a human to
+// promote it first.
 export async function listActiveProcedural() {
   const { rows } = await pool.query(
-    `SELECT * FROM procedural_memory WHERE status = 'active' ORDER BY created_at`
+    `SELECT * FROM procedural_memory WHERE status IN ('active', 'hypothesis') ORDER BY created_at`
   );
   return rows;
 }
@@ -79,17 +83,83 @@ export async function listRetired() {
 }
 
 // Activates the 'agent_proposed' path reserved (but unused) since Phase 1 --
-// see docs/feedback/. Used sparingly: a systemic/structural observation
-// (e.g. "the SOW rarely states debris volume, so productivity-based
-// estimates for this task type are usually a guess"), not per-task noise.
-// Lands in the exact same review queue human_asserted entries already use --
-// listProposals() doesn't filter by source.
+// see docs/feedback/. Lands in the review queue, gated behind a human accept
+// -- superseded in practice by formProceduralHypothesis() below for most
+// agent-inferred observations, per Karl's stated operating model (review will
+// be rare; hypotheses should take effect immediately and get refined through
+// evidence, not wait behind a queue). Left in place for a case that
+// genuinely warrants a hard gate before taking effect, if one comes up.
 export async function proposeFromAgent({ instruction, sourceRefs = [] }) {
   const { rows } = await pool.query(
     `INSERT INTO procedural_memory (instruction, status, source, source_refs)
      VALUES ($1, 'proposed', 'agent_proposed', $2::jsonb)
      RETURNING *`,
     [instruction, JSON.stringify(sourceRefs)]
+  );
+  return rows[0];
+}
+
+// The "teachable moment" loop, generalized beyond resource corrections:
+// after any substantive request, correction, or preference -- not just an
+// explicit "remember this" -- an agent can form a hypothesis about a pattern
+// that might generalize beyond the one project it came from. Active
+// immediately (no review gate), and reinforced rather than duplicated on an
+// exact repeat -- an approximation of "cementing through repetition" for the
+// case where the same instruction text comes up again. A reworded repeat
+// won't be caught by this (needs real judgment, not a string match, same
+// limitation as the task/dependency exact-name duplicate check) -- the
+// model seeing what's already active is what's meant to catch that case.
+export async function formProceduralHypothesis({ instruction, sourceRefs = [] }) {
+  const trimmed = instruction.trim();
+  const evidenceEntry = { type: 'observed_instance', sourceRefs, at: new Date().toISOString() };
+
+  const { rows: existingRows } = await pool.query(
+    `SELECT * FROM procedural_memory WHERE lower(instruction) = lower($1) AND status IN ('proposed', 'hypothesis', 'active')`,
+    [trimmed]
+  );
+  if (existingRows[0]) {
+    const { rows } = await pool.query(
+      `UPDATE procedural_memory SET evidence = evidence || $2::jsonb WHERE id = $1 RETURNING *`,
+      [existingRows[0].id, JSON.stringify([evidenceEntry])]
+    );
+    return rows[0];
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO procedural_memory (instruction, status, source, source_refs, evidence)
+     VALUES ($1, 'hypothesis', 'agent_proposed', $2::jsonb, $3::jsonb)
+     RETURNING *`,
+    [trimmed, JSON.stringify(sourceRefs), JSON.stringify([evidenceEntry])]
+  );
+  return rows[0];
+}
+
+// Same as formProceduralHypothesis, for a domain fact (semantic) rather than
+// a behavioral convention (procedural) -- standalone, unlike
+// recordResourceCorrection's hypothesis creation which is always tied to a
+// specific resource correction. This is for an ordinary conversational
+// observation with no prior estimate to correct.
+export async function formSemanticHypothesis({ content, sourceRefs = [] }) {
+  const trimmed = content.trim();
+  const evidenceEntry = { type: 'observed_instance', sourceRefs, at: new Date().toISOString() };
+
+  const { rows: existingRows } = await pool.query(
+    `SELECT * FROM semantic_memory WHERE lower(content) = lower($1) AND status IN ('proposed', 'hypothesis', 'confirmed')`,
+    [trimmed]
+  );
+  if (existingRows[0]) {
+    const { rows } = await pool.query(
+      `UPDATE semantic_memory SET evidence = evidence || $2::jsonb WHERE id = $1 RETURNING *`,
+      [existingRows[0].id, JSON.stringify([evidenceEntry])]
+    );
+    return rows[0];
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO semantic_memory (content, status, origin, source_refs, evidence)
+     VALUES ($1, 'hypothesis', 'agent_inferred', $2::jsonb, $3::jsonb)
+     RETURNING *`,
+    [trimmed, JSON.stringify(sourceRefs), JSON.stringify([evidenceEntry])]
   );
   return rows[0];
 }

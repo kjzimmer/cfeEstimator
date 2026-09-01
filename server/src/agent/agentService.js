@@ -153,6 +153,39 @@ const TOOLS = [
       required: ['requirementId', 'resourceType', 'description', 'qty', 'unit', 'rationale'],
     },
   },
+  {
+    name: 'form_memory_hypothesis',
+    description:
+      'Proactively capture something that might generalize beyond this one project -- distinct from ' +
+      'propose_memory_entry, which only fires on an explicit "remember this" ask. After ANY substantive ' +
+      'request, correction, or preference a human states -- even without asking you to remember anything -- ' +
+      'consider: is this specific to just this one job, or could it reflect a broader CFE convention? If it ' +
+      'plausibly generalizes, call this right away. It takes effect immediately (not gated behind admin ' +
+      'review like propose_memory_entry) and reinforces automatically if the same pattern comes up again -- ' +
+      'so forming one is cheap and low-risk, not a big commitment. This also covers the reverse case: if a ' +
+      'human asks for something that seems to genuinely contradict what you\'d expect, and there\'s a real ' +
+      'reason to question it, capturing that tension here is how it gets resolved through repeated experience ' +
+      'rather than a one-off intervention. Do NOT use this for something obviously specific to just this job ' +
+      '(this job\'s exact square footage, a one-time customer request) -- only for what reads as a pattern, ' +
+      'rule, or tendency. Same procedural-vs-semantic classification as propose_memory_entry (procedural: how ' +
+      'to behave/decompose work; semantic: a durable domain fact) -- check for an embedded rate/price the same ' +
+      'way first; that belongs in Company Info, not here.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['procedural', 'semantic'] },
+        content: {
+          type: 'string',
+          description: 'The pattern, rule, or tendency, in your own words -- specific enough to be checked against next time it comes up',
+        },
+        sourceConversationRef: {
+          type: 'string',
+          description: 'Short quote or paraphrase of what triggered this, for traceability',
+        },
+      },
+      required: ['type', 'content'],
+    },
+  },
 ];
 
 async function buildFileContext(projectId) {
@@ -250,7 +283,9 @@ function buildSystemPrompt(companySections, rateCardContext, project, workOrderC
 
 Use the update_project_component tool proactively whenever you learn something concrete -- don't wait to be asked. Use draft_work_order once scope and quantities are clear enough to price, and again whenever they change -- a human still has to review and click "Generate Work Order" before anything goes to the customer, so draft early and revise freely rather than waiting for certainty. Keep your chat replies conversational and short; put structured detail into components and the draft work order, not into the chat reply.
 
-If a human explicitly asks you to remember something (they say "remember..." or clearly ask you to retain a rule or fact for the future), use propose_memory_entry per its own instructions -- this only logs a proposal for admin review, it doesn't take effect immediately, so tell them that's what happened. Never call it unless they explicitly asked you to remember something; don't proactively propose memories from an ordinary correction.
+If a human explicitly asks you to remember something (they say "remember..." or clearly ask you to retain a rule or fact for the future), use propose_memory_entry per its own instructions -- this only logs a proposal for admin review, it doesn't take effect immediately, so tell them that's what happened. Never call it unless they explicitly asked you to remember something.
+
+Separately, and more often: after any substantive request, correction, or stated preference -- with no "remember" needed -- use form_memory_hypothesis if it looks like it could generalize beyond this one job (per its own instructions for exactly how to judge that). This is the normal, expected way learning happens here, not an edge case -- a human asking for something once is itself the teaching signal, and forming the hypothesis costs nothing since it just gets reinforced or naturally fades in relevance if it doesn't come up again. Don't ask the human whether to log it -- just do it, and mention briefly in your reply that you've noted it as a pattern to watch for.
 
 The Resource Agent (a separate background process) sometimes can't determine what a task needs and flags it, listed below under "Open resource questions." If the human's message answers one of these -- or corrects a resource requirement more generally -- call resolve_resource_requirement with the real values, reflecting what they actually said in the rationale. This is the only way these get resolved; never tell a human to go edit the Tasks tab themselves, the conversation is how data enters this system.
 
@@ -436,6 +471,18 @@ export async function runAgentTurn(projectId, triggeredByUserId = null) {
             type: 'tool_result',
             tool_use_id: toolUse.id,
             content: `Resolved requirement ${requirementId} ("${description}").`,
+          });
+        } else if (toolUse.name === 'form_memory_hypothesis') {
+          const { type, content, sourceConversationRef } = toolUse.input;
+          const sourceRefs = sourceConversationRef ? [sourceConversationRef] : [];
+          const entry =
+            type === 'procedural'
+              ? await memoryService.formProceduralHypothesis({ instruction: content, sourceRefs })
+              : await memoryService.formSemanticHypothesis({ content, sourceRefs });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: `Noted as a ${type} hypothesis (id ${entry.id}) -- already in effect, no review needed.`,
           });
         }
       } catch (err) {

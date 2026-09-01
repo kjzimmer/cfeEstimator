@@ -257,18 +257,38 @@ CREATE INDEX IF NOT EXISTS idx_work_order_line_items_work_order_id ON work_order
 CREATE TABLE IF NOT EXISTS procedural_memory (
   id           SERIAL PRIMARY KEY,
   instruction  TEXT NOT NULL,
-  status       TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'active', 'retired')),
+  -- 'hypothesis' added alongside semantic_memory's identical status (see
+  -- docs/feedback/): an agent's own inference from an ordinary request --
+  -- not an explicit "remember this" -- takes effect immediately, the same
+  -- way a resource-correction hypothesis already does, rather than sitting
+  -- in the 'proposed' review queue. Karl's stated operating model: human
+  -- review of that queue will be rare by design, used to catch edge cases
+  -- where learning goes wrong, not to gate every entry before it's usable.
+  status       TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'hypothesis', 'active', 'retired')),
   source       TEXT NOT NULL CHECK (source IN ('human_seeded', 'human_asserted', 'agent_proposed')),
   -- Added when 'agent_proposed' was activated (Resource Agent, see
   -- docs/feedback/) -- same shape as semantic_memory.source_refs. Empty for
   -- the human-submitted entries that predate this, which have no run/task to
   -- point back to anyway.
   source_refs  JSONB NOT NULL DEFAULT '[]'::jsonb,
+  -- Accumulates one entry per reinforcing (or disconfirming) occurrence --
+  -- same shape/purpose as semantic_memory.evidence. This is the "cements
+  -- the learning" mechanism: a hypothesis stays a hypothesis, gaining
+  -- evidence, until something (a human, or eventually the Company Memory
+  -- Agent) promotes or retires it -- neither of which is required for it to
+  -- keep being used in the meantime.
+  evidence     JSONB NOT NULL DEFAULT '[]'::jsonb,
   proposed_by  INTEGER REFERENCES users(id),
   reviewed_by  INTEGER REFERENCES users(id),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   reviewed_at  TIMESTAMPTZ
 );
+
+-- Migration for pre-existing databases.
+ALTER TABLE procedural_memory DROP CONSTRAINT IF EXISTS procedural_memory_status_check;
+ALTER TABLE procedural_memory ADD CONSTRAINT procedural_memory_status_check
+  CHECK (status IN ('proposed', 'hypothesis', 'active', 'retired'));
+ALTER TABLE procedural_memory ADD COLUMN IF NOT EXISTS evidence JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 ALTER TABLE procedural_memory ADD COLUMN IF NOT EXISTS source_refs JSONB NOT NULL DEFAULT '[]'::jsonb;
 

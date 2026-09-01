@@ -135,9 +135,11 @@ const FLAG_UNRESOLVED_RESOURCE_TOOL = {
 const PROPOSE_PROCESS_IMPROVEMENT_TOOL = {
   name: 'propose_process_improvement',
   description:
-    'Flag a structural, systemic weak point in the estimating process itself for human review (e.g. "this ' +
-    'category of task is systematically hard to estimate because the SOW never states X"). Not a per-task ' +
-    'comment -- use sparingly, at most once or twice for the whole run.',
+    'Flag a structural, systemic weak point in the estimating process itself (e.g. "this category of task is ' +
+    'systematically hard to estimate because the SOW never states X"). Takes effect immediately as a hypothesis ' +
+    '-- no human review needed before it\'s active -- and reinforces automatically if the same observation ' +
+    'comes up again on a later run. Not a per-task comment -- use sparingly, at most once or twice for the ' +
+    'whole run, only for something that looks like a real recurring pattern, not a one-off.',
   input_schema: {
     type: 'object',
     properties: {
@@ -426,12 +428,12 @@ async function runPhase({ runId, phase, system, initialMessage, tools, taskByNam
           });
         } else if (toolUse.name === 'propose_process_improvement') {
           const { instruction } = toolUse.input;
-          const proposal = await memoryService.proposeFromAgent({
+          const hypothesis = await memoryService.formProceduralHypothesis({
             instruction,
             sourceRefs: [{ type: 'resource_generation_run', id: runId }],
           });
-          roundToolCalls.push({ name: 'propose_process_improvement', input: toolUse.input, result: `proposed procedural memory #${proposal.id}` });
-          toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: `Recorded for human review (id ${proposal.id}).` });
+          roundToolCalls.push({ name: 'propose_process_improvement', input: toolUse.input, result: `noted as hypothesis #${hypothesis.id}` });
+          toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: `Noted as a procedural hypothesis (id ${hypothesis.id}) -- already in effect.` });
         }
       } catch (err) {
         roundToolCalls.push({ name: toolUse.name, input: toolUse.input, error: err.message });

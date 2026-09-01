@@ -107,8 +107,8 @@ function ActiveRow({ entry }) {
         <p className="text-xs text-text-secondary mt-1">Source: {sourceRefs.map(formatSourceRef).join('; ')}</p>
       )}
       <p className="text-xs text-text-secondary mt-1">
-        {SOURCE_LABELS[sourceOrOrigin] || sourceOrOrigin}
-        {entry.type === 'semantic' ? ` · ${entry.status}` : ''}
+        {SOURCE_LABELS[sourceOrOrigin] || sourceOrOrigin} · {entry.status}
+        {entry.evidence?.length > 0 ? ` · ${entry.evidence.length} instance${entry.evidence.length === 1 ? '' : 's'} observed` : ''}
       </p>
     </div>
   );
