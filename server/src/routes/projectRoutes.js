@@ -53,6 +53,26 @@ router.get('/:id', asyncHandler(async (req, res) => {
   res.json(project);
 }));
 
+// Human edit of the project's own record (name, customer, job site) --
+// distinct from /definition/:componentKey above, which is the agent-filled
+// freeform blob. See docs/feedback/ for why job site address needed its own
+// structured toggle instead of relying on the definition's "location" text.
+router.put('/:id', asyncHandler(async (req, res) => {
+  const { name, customerId, status, jobSiteSameAsCustomer, jobSiteAddress } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  const updated = await projectService.updateProjectDetails(req.params.id, {
+    name,
+    customerId: customerId ?? null,
+    status,
+    jobSiteSameAsCustomer: Boolean(jobSiteSameAsCustomer),
+    jobSiteAddress,
+  });
+  if (!updated) return res.status(404).json({ error: 'Project not found' });
+  // Re-fetch through the customer join so the response includes
+  // customer_name/resolved_job_site_address, same shape as GET /:id.
+  res.json(await projectService.getProject(req.params.id));
+}));
+
 // Manual/human edit of a definition component (the agent calls
 // projectService.updateDefinitionComponent directly via tool-calling rather
 // than this HTTP route -- see docs/requirements/api-architecture.md).

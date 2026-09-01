@@ -66,6 +66,7 @@ export const api = {
     request(`/projects${historical === undefined ? '' : `?historical=${historical}`}`),
   getProject: (id) => request(`/projects/${id}`),
   createProject: (payload) => request('/projects', { method: 'POST', body: payload }),
+  updateProject: (id, payload) => request(`/projects/${id}`, { method: 'PUT', body: payload }),
   updateDefinitionComponent: (projectId, componentKey, content) =>
     request(`/projects/${projectId}/definition/${componentKey}`, {
       method: 'PUT',

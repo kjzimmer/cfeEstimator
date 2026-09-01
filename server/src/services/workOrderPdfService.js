@@ -104,7 +104,12 @@ export async function generateWorkOrderPdf({ identity, customer, project, workOr
   doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR.text);
   doc.text('Site Location', rightColX2, blockTop, { width: colWidth });
   doc.font('Helvetica').fontSize(10).fillColor(COLOR.muted);
-  doc.text(workOrder.site_location || customer?.address || '(same as customer address)', rightColX2, doc.y, { width: colWidth });
+  doc.text(
+    workOrder.site_location || project?.resolved_job_site_address || customer?.address || '(same as customer address)',
+    rightColX2,
+    doc.y,
+    { width: colWidth }
+  );
   if (workOrder.requested_start) {
     doc.moveDown(0.5);
     doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR.text);

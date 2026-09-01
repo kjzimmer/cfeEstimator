@@ -137,6 +137,19 @@ CREATE TABLE IF NOT EXISTS projects (
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id);
 ALTER TABLE projects DROP COLUMN IF EXISTS customer;
 
+-- Job site address, structured (docs/feedback/): before this, every agent
+-- treated the customer's on-file address as the work site by convention,
+-- with the freeform `definition.location` narrative as the only (unreliable,
+-- prompt-parsed) override. This makes "same as customer" vs "different site"
+-- an explicit human choice instead of an inferred one. job_site_address is
+-- only meaningful when job_site_same_as_customer is false -- see
+-- projectService's resolved_job_site_address for how callers should read this
+-- (never read these two columns directly). `definition.location` still
+-- exists for richer freeform site-visit narrative; it's no longer treated as
+-- an address override.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS job_site_same_as_customer BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS job_site_address TEXT NOT NULL DEFAULT '';
+
 CREATE TABLE IF NOT EXISTS files (
   id          SERIAL PRIMARY KEY,
   project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

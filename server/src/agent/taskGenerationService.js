@@ -139,11 +139,11 @@ export async function buildProjectContext(projectId, { includeConversation = tru
 
   return `## Project: ${project.name} (customer: ${project.customer_name || 'unspecified'})
 
-## CFE's own address (for distance/mobilization reasoning -- derive distance from this and the customer/site address below rather than asking, per company convention)
+## CFE's own address (for distance/mobilization reasoning -- derive distance from this and the job site address below rather than asking, per company convention)
 ${companyIdentity?.address || '(not set in Company Info)'}
 
-## Customer's address on file (usually the work site for these jobs, unless the project definition's own "location" component below states a different site)
-${project.customer_address || '(not set on the customer record)'}
+## Job site address (structured, human-set on the project's Details tab -- authoritative, use this rather than the customer's billing address for distance/site reasoning)
+${project.resolved_job_site_address || '(not set)'}
 
 ## Company behavioral conventions (procedural memory -- apply these with judgment, not as rigid rules)
 ${proceduralContext}

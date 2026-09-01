@@ -309,15 +309,15 @@ ${memoryContext}
 ## Company context
 ${companyContext}
 
-## CFE's own address (derive travel distance from this and the customer's address below rather than asking -- see the procedural rule above about that)
+## CFE's own address (derive travel distance from this and the job site address below rather than asking -- see the procedural rule above about that)
 ${companyIdentity?.address || '(not set in Company Info)'}
 
 ## Rate cards (use these names verbatim in draft_work_order's rateCardItemName)
 ${rateCardContext}
 
 ## Current project: ${project.name} (customer: ${project.customer_name || 'unspecified'})
-## Customer's address on file (usually the work site for these jobs, unless told otherwise)
-${project.customer_address || '(not set on the customer record)'}
+## Job site address (structured, human-set on the project's Details tab -- authoritative for distance/site reasoning, may differ from the customer's billing address)
+${project.resolved_job_site_address || '(not set)'}
 ## Current project definition
 ${definitionContext}
 

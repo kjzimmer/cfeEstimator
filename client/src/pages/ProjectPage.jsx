@@ -7,9 +7,11 @@ import DefinitionPanel from '../components/DefinitionPanel.jsx';
 import DocumentsPanel from '../components/DocumentsPanel.jsx';
 import WorkOrderPanel from '../components/WorkOrderPanel.jsx';
 import TasksPanel from '../components/TasksPanel.jsx';
+import ProjectDetailsPanel from '../components/ProjectDetailsPanel.jsx';
 
 const PULSE_DURATION_MS = 1700;
 const TABS = [
+  { key: 'details', label: 'Details' },
   { key: 'definition', label: 'Definition' },
   { key: 'documents', label: 'Documents' },
   { key: 'tasks', label: 'Tasks' },
@@ -125,6 +127,9 @@ export default function ProjectPage() {
             ))}
           </div>
           <div className="flex-1 min-h-0">
+            {activeTab === 'details' && (
+              <ProjectDetailsPanel project={project} onUpdated={setProject} />
+            )}
             {activeTab === 'definition' && (
               <DefinitionPanel definition={project.definition} pulsingKeys={pulsingKeys} />
             )}
