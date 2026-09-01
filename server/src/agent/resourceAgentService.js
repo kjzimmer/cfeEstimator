@@ -37,7 +37,12 @@ const ADD_RESOURCE_REQUIREMENT_TOOL = {
   input_schema: {
     type: 'object',
     properties: {
-      taskName: { type: 'string', description: 'Exact name of the task this resource is needed for' },
+      taskName: {
+        type: 'string',
+        description:
+          'The task\'s exact name only -- e.g. "Mobilize equipment and crew to site". Never include the description text ' +
+          'that follows it in the task list, even though they appear together there.',
+      },
       resourceType: { type: 'string', enum: ['labor', 'material', 'equipment', 'other'] },
       description: {
         type: 'string',
@@ -122,7 +127,7 @@ const FLAG_UNRESOLVED_RESOURCE_TOOL = {
   input_schema: {
     type: 'object',
     properties: {
-      taskName: { type: 'string', description: 'Exact name of the task you cannot size' },
+      taskName: { type: 'string', description: 'The task\'s exact name only -- not its description, same rule as add_resource_requirement' },
       reason: {
         type: 'string',
         description: 'Specifically what information is missing and why you cannot reasonably assume it -- this is what a human will see and needs to answer',
@@ -157,6 +162,17 @@ const RATE_CARD_TYPES = ['service_rates', 'material_costs', 'equipment_rates', '
 // is the real convention CFE's own rate cards/work orders already use for a
 // genuinely non-scaling flat item; these aren't that.
 const VAGUE_UNIT_DENYLIST = new Set(['job', 'jobs', 'each job', 'lump sum', 'lumpsum', 'misc', 'miscellaneous']);
+
+// Structural backstop alongside the task-list format fix above -- if the
+// model still echoes back "name: description" (or "name -- description")
+// instead of the bare name, recover by matching on the text before the
+// separator instead of failing the whole call. Exact match always wins.
+function resolveTask(taskByName, taskName) {
+  const exact = taskByName.get((taskName || '').toLowerCase());
+  if (exact) return exact;
+  const trimmed = (taskName || '').split(/:|--/)[0].trim();
+  return trimmed ? taskByName.get(trimmed.toLowerCase()) : undefined;
+}
 
 async function gatherContext(workOrderId) {
   const workOrder = await workOrderService.getWorkOrder(workOrderId);
@@ -199,7 +215,15 @@ async function gatherContext(workOrderId) {
                 .join('\n')
             : '    (none yet)';
           const party = t.responsible_party !== 'CFE' ? ` [responsible party: ${t.responsible_party}]` : '';
-          return `- ${t.name}${party}${t.description ? `: ${t.description}` : ''}\n${reqsText}`;
+          // Name and description on separate lines, name in quotes -- a real run
+          // showed the one-line "name: description" format (still used by the
+          // Task/Dependency Agent, which only ever echoes back names it typed
+          // itself) is ambiguous for this agent, which reads names it didn't
+          // write: with long, detailed descriptions the model copied the whole
+          // line -- name, colon, and description together -- into taskName,
+          // failing every add_resource_requirement call in the round. See
+          // docs/feedback/.
+          return `- Task: "${t.name}"${party}\n  Description: ${t.description || '(none)'}\n${reqsText}`;
         })
         .join('\n')
     : '(no approved tasks)';
@@ -222,6 +246,7 @@ function buildEstimateSystemPrompt({ projectContext, taskListText, semanticMemor
   return `You are estimating the labor, material, equipment, and other resources each approved task in a construction/site-work job needs. This may be a first pass or a rerun reconciling against work already done -- some tasks below already have existing requirements with their own stated reasoning and an id. Treat that as the current state to build on, not a blank slate: your job is to reconcile it against the current project context, not regenerate everything from scratch.
 
 ## Approved tasks to estimate for, with any existing resource requirements
+Each task's quoted name on the "Task:" line is its exact reference name for every tool call below -- never include its Description text as part of taskName, even though they're shown together.
 ${taskListText}
 
 ## What CFE already knows about its own resource tendencies (semantic memory)
@@ -287,7 +312,12 @@ async function runPhase({ runId, phase, system, initialMessage, tools, taskByNam
   let round = 0;
   for (; round < maxRounds; round++) {
     const response = await anthropic.messages.create(
-      { model: MODEL, max_tokens: 2048, system, messages, tools },
+      // 4096, not the Task Agent's 2048 -- a real run showed a batch of
+      // several add_resource_requirement calls (each carrying a full,
+      // reviewer-checkable rationale string) can hit 2048 mid-call, truncating
+      // the last tool_use's input and causing a NOT-NULL constraint failure
+      // downstream. See docs/feedback/.
+      { model: MODEL, max_tokens: 4096, system, messages, tools },
       { timeout: REQUEST_TIMEOUT_MS }
     );
 
@@ -330,7 +360,7 @@ async function runPhase({ runId, phase, system, initialMessage, tools, taskByNam
             basisRateUnit,
             semanticMemoryId,
           } = toolUse.input;
-          const task = taskByName.get(taskName.toLowerCase());
+          const task = resolveTask(taskByName, taskName);
           if (!task) throw new Error(`Unknown task name: "${taskName}"`);
           if (VAGUE_UNIT_DENYLIST.has((unit || '').trim().toLowerCase())) {
             throw new Error(
@@ -404,7 +434,7 @@ async function runPhase({ runId, phase, system, initialMessage, tools, taskByNam
           });
         } else if (toolUse.name === 'flag_unresolved_resource') {
           const { taskName, reason } = toolUse.input;
-          const task = taskByName.get(taskName.toLowerCase());
+          const task = resolveTask(taskByName, taskName);
           if (!task) throw new Error(`Unknown task name: "${taskName}"`);
           // Same table/shape as a real requirement (confident: false +
           // uncertainty_note, already-built infrastructure) rather than a new
